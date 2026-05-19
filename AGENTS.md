@@ -2,11 +2,11 @@
 
 - Ultra concise (keywords only)
 - Korean for chat, English for docs
+- History: Manage history via git commits on EVERY turn. No separate LOG.md.
 - Entry Point: `src/main.cpp` (CLI/UI branch)
 - Diagnostics: Update `runDebug` in `src/cli_main.cpp`
 - Data: Normalize 16-bit images for UI preview
 - Architecture: `gocator_core` (no Qt) vs `src/ui_main.cpp` (Qt)
-- Logs: Use git commits for history. See `LOG.md` for major milestones.
 
 ## 주요 마일스톤
 
