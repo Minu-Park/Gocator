@@ -207,14 +207,45 @@ QImage imagePreview(const gocator::GocatorImageFrame& frame)
 
     if (pixelSize == 2 && frame.pixels.size() >= static_cast<std::size_t>(width * height * pixelSize))
     {
+        // For 16-bit data (often heights or 16-bit intensity), we find min/max and normalize.
+        const std::uint16_t* source16 = reinterpret_cast<const std::uint16_t*>(data);
+        std::uint16_t minVal = 0xFFFF;
+        std::uint16_t maxVal = 0;
+        bool found = false;
+
+        for (std::size_t i = 0; i < static_cast<std::size_t>(width * height); ++i)
+        {
+            if (source16[i] != 0x8000) // k16S_NULL is often 0x8000
+            {
+                minVal = std::min(minVal, source16[i]);
+                maxVal = std::max(maxVal, source16[i]);
+                found = true;
+            }
+        }
+
+        if (!found || maxVal <= minVal)
+        {
+            maxVal = 0xFFFF;
+            minVal = 0;
+        }
+
         QImage image(width, height, QImage::Format_Grayscale8);
+        const float scale = 255.0f / (maxVal - minVal);
+
         for (int y = 0; y < height; ++y)
         {
             auto* target = image.scanLine(y);
-            const auto* source = data + static_cast<std::size_t>(y * width * pixelSize);
             for (int x = 0; x < width; ++x)
             {
-                target[x] = source[x * 2 + 1];
+                std::uint16_t val = source16[y * width + x];
+                if (val == 0x8000)
+                {
+                    target[x] = 0;
+                }
+                else
+                {
+                    target[x] = static_cast<std::uint8_t>((val - minVal) * scale);
+                }
             }
         }
         return image;
@@ -332,7 +363,7 @@ void setStatus(QLabel& state, QLabel& endpoint, QLabel& gdp, bool connected, con
 
 } // namespace
 
-int main(int argc, char** argv)
+int run_ui(int argc, char** argv)
 {
     QApplication app(argc, argv);
 
@@ -441,6 +472,8 @@ int main(int argc, char** argv)
     frameCountSpin->setRange(1, 200);
     frameCountSpin->setValue(10);
     auto* profileButton = new QPushButton("Profile Output", acquisitionBox);
+    auto* surfaceButton = new QPushButton("Surface Output", acquisitionBox);
+    auto* listSourcesButton = new QPushButton("List Sources", acquisitionBox);
     auto* setOutputButton = new QPushButton("Set Output", acquisitionBox);
     auto* grabButton = new QPushButton("Grab One", acquisitionBox);
 
@@ -451,6 +484,8 @@ int main(int argc, char** argv)
     acquisitionControlsLayout->addWidget(new QLabel("Frames", acquisitionControls));
     acquisitionControlsLayout->addWidget(frameCountSpin, 1);
     acquisitionControlsLayout->addWidget(profileButton);
+    acquisitionControlsLayout->addWidget(surfaceButton);
+    acquisitionControlsLayout->addWidget(listSourcesButton);
     acquisitionControlsLayout->addWidget(setOutputButton);
     acquisitionControlsLayout->addWidget(grabButton);
 
@@ -515,6 +550,8 @@ int main(int argc, char** argv)
         discoverButton,
         infoButton,
         profileButton,
+        surfaceButton,
+        listSourcesButton,
         setOutputButton,
         grabButton,
         applyScanSettingsButton,
@@ -870,6 +907,51 @@ int main(int argc, char** argv)
             result.hasScanner = true;
             result.ok = true;
             result.message = "configured\n" + scannerInfoText(result.scanner);
+            return result;
+        });
+    });
+
+    QObject::connect(surfaceButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        auto existingSettings = connectedSettings;
+        runOperation("Surface Output", [&, config = *config, existingSettings] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            OperationResult result;
+            result.scanner = settings->prepareSurfaceOutput();
+            result.hasScanner = true;
+            result.ok = true;
+            result.message = "configured surface\n" + scannerInfoText(result.scanner);
+            return result;
+        });
+    });
+
+    QObject::connect(listSourcesButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        auto existingSettings = connectedSettings;
+        runOperation("List Sources", [&, config = *config, existingSettings] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            gocator::ScannerInfo scanner = settings->detectPrimaryScanner();
+            std::vector<std::string> sources = settings->listSources(scanner.scannerPath);
+            
+            OperationResult result;
+            result.ok = true;
+            std::ostringstream out;
+            out << "found=" << sources.size();
+            for (const auto& s : sources)
+            {
+                out << "\n" << s;
+            }
+            result.message = out.str();
             return result;
         });
     });

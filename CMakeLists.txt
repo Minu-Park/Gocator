@@ -44,39 +44,29 @@ target_link_libraries(gocator_core
         GoPxLSdk
 )
 
-add_executable(gocator_settings
+add_executable(gocator
     src/main.cpp
+    src/cli_main.cpp
 )
 
-target_link_libraries(gocator_settings
+if(GOCATOR_BUILD_QT_UI)
+    find_package(Qt6 QUIET COMPONENTS Widgets)
+    if(Qt6_FOUND)
+        target_sources(gocator PRIVATE src/ui_main.cpp)
+        target_link_libraries(gocator PRIVATE Qt6::Widgets)
+        target_compile_definitions(gocator PRIVATE GOCATOR_HAS_UI)
+    endif()
+endif()
+
+target_link_libraries(gocator
     PRIVATE
         gocator_core
 )
 
 set(gocator_runtime_targets
     gocator_core
-    gocator_settings
+    gocator
 )
-
-if(GOCATOR_BUILD_QT_UI)
-    find_package(Qt6 QUIET COMPONENTS Widgets)
-
-    if(Qt6_FOUND)
-        add_executable(gocator_debug_ui
-            src/ui/main.cpp
-        )
-
-        target_link_libraries(gocator_debug_ui
-            PRIVATE
-                gocator_core
-                Qt6::Widgets
-        )
-
-        list(APPEND gocator_runtime_targets gocator_debug_ui)
-    else()
-        message(STATUS "Qt6 Widgets not found; skipping gocator_debug_ui")
-    endif()
-endif()
 
 foreach(target ${gocator_runtime_targets})
     set_target_properties(${target} PROPERTIES

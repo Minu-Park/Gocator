@@ -74,6 +74,8 @@ public:
     void configureProfileMode(const ScannerInfo& scanner, const ProfileModeOptions& options = {});
     void configureScanTuning(const ScannerInfo& scanner, const ScanTuningOptions& options);
     ScannerInfo prepareProfileOutput(const ProfileModeOptions& options = {});
+    ScannerInfo prepareSurfaceOutput(const ProfileModeOptions& options = {});
+    std::vector<std::string> listSources(const std::string& scannerPath);
 
 private:
     GoPxLSdk::GoSystem& system();

@@ -11,6 +11,7 @@
 #include <GoPxLSdk/GoGdpMsg/GoGdpPixelFormat.h>
 #include <GoPxLSdk/GoGdpMsg/GoGdpProfilePointCloud.h>
 #include <GoPxLSdk/GoGdpMsg/GoGdpProfileUniform.h>
+#include <GoPxLSdk/GoGdpMsg/GoGdpSurfaceUniform.h>
 #include <GoPxLSdk/GoGdpMsg/GoGdpSpots.h>
 #include <GoPxLSdk/GoSystem.h>
 #include <kApi/Data/kArray1.h>
@@ -245,7 +246,7 @@ GocatorFrame GocatorAcquisition::frameFromDataSet(const GoPxLSdk::GoDataSet& dat
         const GoPxLSdk::GoGdpMsg& message = dataSet.GdpMsgAt(index);
         frame.messages.push_back(messageInfo(message));
 
-        if (message.Type() == GoPxLSdk::MessageType::IMAGE)
+        if (message.Type() == GoPxLSdk::MessageType::IMAGE || message.Type() == GoPxLSdk::MessageType::UNIFORM_SURFACE)
         {
             frame.images.push_back(imageFrame(static_cast<const GoPxLSdk::GoGdpImage&>(message)));
         }

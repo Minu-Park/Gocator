@@ -244,6 +244,47 @@ ScannerInfo GocatorSettingsManager::prepareProfileOutput(const ProfileModeOption
     return scanner;
 }
 
+ScannerInfo GocatorSettingsManager::prepareSurfaceOutput(const ProfileModeOptions& options)
+{
+    stopIfRunning();
+    ScannerInfo scanner = detectPrimaryScanner();
+    configureProfileMode(scanner, options);
+    enableGocatorProtocol(true);
+    clearGocatorOutputs();
+    
+    std::string surfaceSource = scanner.profileSourceId;
+    // Try to find a surface source
+    size_t profilePos = surfaceSource.find("Profile");
+    if (profilePos != std::string::npos)
+    {
+        surfaceSource.replace(profilePos, 7, "Surface");
+    }
+    
+    addOutput(surfaceSource);
+    return scanner;
+}
+
+std::vector<std::string> GocatorSettingsManager::listSources(const std::string& scannerPath)
+{
+    std::vector<std::string> sources;
+    try
+    {
+        GoPxLSdk::GoJson data = read(scannerPath + "/sources");
+        if (data.IsArray())
+        {
+            for (std::size_t i = 0; i < data.Size(); ++i)
+            {
+                sources.push_back(data.At("/" + std::to_string(i)).Get<std::string>());
+            }
+        }
+    }
+    catch (...)
+    {
+        // Fallback or empty
+    }
+    return sources;
+}
+
 GoPxLSdk::GoSystem& GocatorSettingsManager::system()
 {
     return connection_.system();
