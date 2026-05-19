@@ -6,6 +6,8 @@
 
 #include <GoPxLSdk/GoJson.h>
 
+#include "gocator/GocatorTypes.h"
+
 namespace GoPxLSdk
 {
 class GoSystem;
@@ -13,13 +15,6 @@ class GoSystem;
 
 namespace gocator
 {
-
-struct GocatorConnectionConfig
-{
-    std::string address;
-    std::uint16_t controlPort = 3600;
-    int commandTimeoutMs = 30000;
-};
 
 struct ScannerInfo
 {

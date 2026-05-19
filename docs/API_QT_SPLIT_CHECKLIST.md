@@ -14,8 +14,8 @@
 - [x] `GoPxL-SDK` 로컬 사본 배치.
 - [x] CMake SDK include/lib/rpath 연결.
 - [x] 초기 `GocatorSettingsManager` 작성.
-- [ ] git repo 초기화 및 기준선 commit.
-- [ ] `GocatorDiscovery` 추가: 자동 리스트, manual IP fallback.
+- [x] git repo 초기화 및 기준선 commit.
+- [x] `GocatorDiscovery` 추가: 자동 리스트, manual IP fallback.
 - [ ] `GocatorConnection` 추가: connect/disconnect/start/stop/port/timeout.
 - [ ] `GocatorResourceClient` 추가: read/update/call/schema/child URI.
 - [ ] `GocatorSettingsCatalog` 추가: schema 기반 writable/min/max/enum 추출.

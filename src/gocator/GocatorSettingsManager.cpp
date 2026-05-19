@@ -2,11 +2,13 @@
 
 #include <stdexcept>
 #include <sstream>
+#include <utility>
 
-#include <GoApi/GoApiLib.h>
 #include <GoPxLSdk/Def.h>
 #include <GoPxLSdk/GoSystem.h>
 #include <kApi/Io/kNetwork.h>
+
+#include "gocator/GocatorSdkRuntime.h"
 
 namespace gocator
 {
@@ -16,33 +18,6 @@ namespace
 constexpr const char* kGocatorControlPath = "/controls/gocator";
 constexpr const char* kAddOutputPath = "/controls/gocator/outputs/commands/add";
 constexpr const char* kRemoveAllOutputPath = "/controls/gocator/outputs/commands/removeAll";
-
-class GoApiRuntime
-{
-public:
-    static GoApiRuntime& instance()
-    {
-        static GoApiRuntime runtime;
-        return runtime;
-    }
-
-private:
-    GoApiRuntime()
-    {
-        const kStatus status = GoApiLib_Construct(&assembly_);
-        if (status != kOK)
-        {
-            throw std::runtime_error("GoApiLib_Construct failed");
-        }
-    }
-
-    ~GoApiRuntime()
-    {
-        kDestroyRef(&assembly_);
-    }
-
-    kAssembly assembly_ = kNULL;
-};
 
 std::string jsonString(const std::string& value)
 {
@@ -93,7 +68,7 @@ std::string profileSourceForEngine(const std::string& engineId, const std::strin
 GocatorSettingsManager::GocatorSettingsManager(GocatorConnectionConfig config)
     : config_(std::move(config))
 {
-    GoApiRuntime::instance();
+    GocatorSdkRuntime::ensureInitialized();
 
     kIpAddress address = {};
     const kStatus parseStatus = kIpAddress_Parse(&address, config_.address.c_str());

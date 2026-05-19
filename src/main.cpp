@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 
+#include "gocator/GocatorDiscovery.h"
 #include "gocator/GocatorSettingsManager.h"
 
 namespace
@@ -10,6 +11,7 @@ namespace
 void printUsage(const char* app)
 {
     std::cerr << "Usage:\n"
+              << "  " << app << " discover [timeout-ms]\n"
               << "  " << app << " <sensor-ip> info\n"
               << "  " << app << " <sensor-ip> read <resource-path>\n"
               << "  " << app << " <sensor-ip> profile-output\n";
@@ -19,6 +21,45 @@ void printUsage(const char* app)
 
 int main(int argc, char** argv)
 {
+    if (argc >= 2 && std::string(argv[1]) == "discover")
+    {
+        try
+        {
+            gocator::GocatorDiscoveryOptions options;
+            if (argc >= 3)
+            {
+                options.timeoutMs = std::stoull(argv[2]);
+            }
+
+            const gocator::GocatorDiscovery discovery;
+            const std::vector<gocator::GocatorDeviceInfo> devices = discovery.discover(options);
+
+            for (std::size_t i = 0; i < devices.size(); ++i)
+            {
+                const gocator::GocatorDeviceInfo& device = devices[i];
+                std::cout << "index=" << i
+                          << " ip=" << device.address
+                          << " controlPort=" << device.controlPort
+                          << " gdpPort=" << device.gdpPort
+                          << " webPort=" << device.webPort
+                          << " serial=" << device.serialNumber
+                          << " model=" << device.deviceModel
+                          << " dhcp=" << device.dhcp
+                          << " remote=" << device.remote
+                          << " conflict=" << device.addressConflict
+                          << " localConnect=" << device.canConnectLocally()
+                          << '\n';
+            }
+
+            return 0;
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "Error: " << e.what() << '\n';
+            return 1;
+        }
+    }
+
     if (argc < 3)
     {
         printUsage(argv[0]);
