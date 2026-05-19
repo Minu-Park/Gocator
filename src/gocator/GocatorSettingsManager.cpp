@@ -103,6 +103,16 @@ void GocatorSettingsManager::call(const std::string& path, const GoPxLSdk::GoJso
     resources_.call(path, payload);
 }
 
+GoPxLSdk::GoJson GocatorSettingsManager::schema(const std::string& path)
+{
+    return resources_.schema(path);
+}
+
+GoPxLSdk::GoJson GocatorSettingsManager::schemaFor(const std::string& path, const std::string& propertyPath)
+{
+    return resources_.schemaFor(path, propertyPath);
+}
+
 ScannerInfo GocatorSettingsManager::detectPrimaryScanner()
 {
     GoPxLSdk::GoJson sensorsRoot = read("/scan/visibleSensors/");
@@ -160,6 +170,26 @@ void GocatorSettingsManager::configureProfileMode(const ScannerInfo& scanner, co
             << "\"scanMode\":" << options.scanMode << ","
             << "\"intensityEnabled\":" << (options.intensityEnabled ? "true" : "false") << ","
             << "\"uniformSpacingEnabled\":" << (options.uniformSpacingEnabled ? "true" : "false")
+            << "}}}";
+
+    update(scanner.scannerPath, GoPxLSdk::GoJson(payload.str()));
+}
+
+void GocatorSettingsManager::configureScanTuning(const ScannerInfo& scanner, const ScanTuningOptions& options)
+{
+    std::ostringstream payload;
+    payload << "{"
+            << "\"parameters\":{";
+
+    if (options.updateExposure)
+    {
+        payload << "\"exposure\":" << options.exposure << ",";
+    }
+
+    payload << "\"scanModeSettings\":{"
+            << "\"scanMode\":" << options.profileMode.scanMode << ","
+            << "\"intensityEnabled\":" << (options.profileMode.intensityEnabled ? "true" : "false") << ","
+            << "\"uniformSpacingEnabled\":" << (options.profileMode.uniformSpacingEnabled ? "true" : "false")
             << "}}}";
 
     update(scanner.scannerPath, GoPxLSdk::GoJson(payload.str()));

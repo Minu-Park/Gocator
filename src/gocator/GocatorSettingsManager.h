@@ -34,6 +34,13 @@ struct ProfileModeOptions
     bool uniformSpacingEnabled = true;
 };
 
+struct ScanTuningOptions
+{
+    ProfileModeOptions profileMode;
+    bool updateExposure = false;
+    int exposure = 1000;
+};
+
 class GocatorSettingsManager
 {
 public:
@@ -50,6 +57,8 @@ public:
     GoPxLSdk::GoJson read(const std::string& path);
     void update(const std::string& path, const GoPxLSdk::GoJson& payload);
     void call(const std::string& path, const GoPxLSdk::GoJson& payload);
+    GoPxLSdk::GoJson schema(const std::string& path);
+    GoPxLSdk::GoJson schemaFor(const std::string& path, const std::string& propertyPath);
 
     ScannerInfo detectPrimaryScanner();
     void stopIfRunning() noexcept;
@@ -57,6 +66,7 @@ public:
     void clearGocatorOutputs();
     void addOutput(const std::string& sourceId, int outputId = 0, bool autoShift = true);
     void configureProfileMode(const ScannerInfo& scanner, const ProfileModeOptions& options = {});
+    void configureScanTuning(const ScannerInfo& scanner, const ScanTuningOptions& options);
     ScannerInfo prepareProfileOutput(const ProfileModeOptions& options = {});
 
 private:

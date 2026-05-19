@@ -13,6 +13,7 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QCheckBox>
 #include <QDateTime>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -374,6 +375,35 @@ int main(int argc, char** argv)
     topLayout->addWidget(statusBox, 1);
     topLayout->addWidget(infoBox, 2);
 
+    auto* scanSettingsBox = new QGroupBox("Scan Settings", central);
+    auto* scanSettingsLayout = new QHBoxLayout(scanSettingsBox);
+    auto* scanModeSpin = new QSpinBox(scanSettingsBox);
+    scanModeSpin->setRange(0, 10);
+    scanModeSpin->setValue(2);
+    auto* intensityCheck = new QCheckBox("Intensity", scanSettingsBox);
+    intensityCheck->setChecked(true);
+    auto* uniformSpacingCheck = new QCheckBox("Uniform spacing", scanSettingsBox);
+    uniformSpacingCheck->setChecked(true);
+    auto* exposureCheck = new QCheckBox("Exposure", scanSettingsBox);
+    auto* exposureSpin = new QSpinBox(scanSettingsBox);
+    exposureSpin->setRange(1, 1000000);
+    exposureSpin->setValue(1000);
+    exposureSpin->setSingleStep(100);
+    auto* applyScanSettingsButton = new QPushButton("Apply", scanSettingsBox);
+    auto* readScannerButton = new QPushButton("Read Scanner", scanSettingsBox);
+    auto* schemaScannerButton = new QPushButton("Schema", scanSettingsBox);
+
+    scanSettingsLayout->addWidget(new QLabel("Scan mode", scanSettingsBox));
+    scanSettingsLayout->addWidget(scanModeSpin);
+    scanSettingsLayout->addWidget(intensityCheck);
+    scanSettingsLayout->addWidget(uniformSpacingCheck);
+    scanSettingsLayout->addWidget(exposureCheck);
+    scanSettingsLayout->addWidget(exposureSpin);
+    scanSettingsLayout->addStretch(1);
+    scanSettingsLayout->addWidget(applyScanSettingsButton);
+    scanSettingsLayout->addWidget(readScannerButton);
+    scanSettingsLayout->addWidget(schemaScannerButton);
+
     auto* acquisitionBox = new QGroupBox("Acquisition", central);
     auto* acquisitionLayout = new QVBoxLayout(acquisitionBox);
     auto* acquisitionControls = new QWidget(acquisitionBox);
@@ -446,6 +476,7 @@ int main(int argc, char** argv)
 
     root->addWidget(connectionBox);
     root->addWidget(topRow);
+    root->addWidget(scanSettingsBox);
     root->addWidget(acquisitionBox, 2);
     root->addWidget(resourceBox);
     root->addWidget(new QLabel("Discovered devices", central));
@@ -465,6 +496,9 @@ int main(int argc, char** argv)
         profileButton,
         setOutputButton,
         grabButton,
+        applyScanSettingsButton,
+        readScannerButton,
+        schemaScannerButton,
         readButton,
     };
 
@@ -716,6 +750,86 @@ int main(int argc, char** argv)
             result.scanner = settings->detectPrimaryScanner();
             result.hasScanner = true;
             result.message = scannerInfoText(result.scanner);
+            return result;
+        });
+    });
+
+    QObject::connect(applyScanSettingsButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        gocator::ScanTuningOptions options;
+        options.profileMode.scanMode = scanModeSpin->value();
+        options.profileMode.intensityEnabled = intensityCheck->isChecked();
+        options.profileMode.uniformSpacingEnabled = uniformSpacingCheck->isChecked();
+        options.updateExposure = exposureCheck->isChecked();
+        options.exposure = exposureSpin->value();
+
+        auto existingSettings = connectedSettings;
+        runOperation("Apply Scan Settings", [&, config = *config, existingSettings, options] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            gocator::ScannerInfo scanner = settings->detectPrimaryScanner();
+            settings->stopIfRunning();
+            settings->configureScanTuning(scanner, options);
+
+            OperationResult result;
+            result.ok = true;
+            result.hasScanner = true;
+            result.scanner = scanner;
+            std::ostringstream out;
+            out << "scanMode=" << options.profileMode.scanMode
+                << " intensity=" << (options.profileMode.intensityEnabled ? "true" : "false")
+                << " uniformSpacing=" << (options.profileMode.uniformSpacingEnabled ? "true" : "false");
+            if (options.updateExposure)
+            {
+                out << " exposure=" << options.exposure;
+            }
+            result.message = out.str();
+            return result;
+        });
+    });
+
+    QObject::connect(readScannerButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        auto existingSettings = connectedSettings;
+        runOperation("Read Scanner", [&, config = *config, existingSettings] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            gocator::ScannerInfo scanner = settings->detectPrimaryScanner();
+
+            OperationResult result;
+            result.ok = true;
+            result.hasScanner = true;
+            result.scanner = scanner;
+            result.message = settings->read(scanner.scannerPath).ToString();
+            return result;
+        });
+    });
+
+    QObject::connect(schemaScannerButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        auto existingSettings = connectedSettings;
+        runOperation("Scanner Schema", [&, config = *config, existingSettings] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            gocator::ScannerInfo scanner = settings->detectPrimaryScanner();
+
+            OperationResult result;
+            result.ok = true;
+            result.hasScanner = true;
+            result.scanner = scanner;
+            result.message = settings->schema(scanner.scannerPath).ToString();
             return result;
         });
     });
