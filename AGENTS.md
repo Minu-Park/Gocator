@@ -20,3 +20,4 @@
 - 2026-05-19: GDP profile preview 추가. 원인: 현재 출력 source가 image가 아닌 `UNIFORM_PROFILE`. 결과: profile metadata/valid points 추출 및 UI line preview 표시.
 - 2026-05-19: GDP grab retry/raw stats 추가. 원인: 첫 frame 또는 scene 상태에 따라 profile valid=0. 결과: valid profile까지 N frame 수신, range/intensity 통계로 원인 구분.
 - 2026-05-19: Scan tuning UI 추가. 원인: valid profile 확보를 위해 scan mode/intensity/spacing/exposure 조절 필요. 결과: scanner read/schema와 안전한 optional exposure 적용 경로 확보.
+- 2026-05-19: CLI tuning/grab 및 실측. 원인: UI 밖에서 파라미터 조정 결과 확인 필요. 결과: raw image는 수신되나 어둡고 spots=0, profile invalid 원인은 spot detection 이전 단계로 좁힘.

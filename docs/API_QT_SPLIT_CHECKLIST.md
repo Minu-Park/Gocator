@@ -25,6 +25,7 @@
 - [x] GDP profile preview 추가: uniform/profile point cloud metadata, valid point line plot.
 - [x] GDP grab retry 추가: startup invalid frame 회피, range/intensity raw stats 표시.
 - [x] Scan tuning UI 추가: scan mode, intensity, uniform spacing, optional exposure, scanner read/schema.
+- [x] CLI tuning/grab 추가: profile-test, source-test, exposure/Z/threshold sweep, image/spots stats.
 - [ ] `GocatorSettingsCatalog` 추가: schema 기반 writable/min/max/enum 추출.
 - [ ] `GocatorScanSettings` 추가: scanner detect, scan mode, intensity, spacing.
 - [ ] `GocatorOutputSettings` 추가: protocol enable, output clear/add, source 선택.

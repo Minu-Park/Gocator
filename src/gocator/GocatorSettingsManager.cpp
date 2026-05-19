@@ -128,6 +128,7 @@ ScannerInfo GocatorSettingsManager::detectPrimaryScanner()
     info.engineId = sensor.At("/engineId").Get<std::string>();
     info.scannerId = "scanner-0";
     info.scannerPath = "/scan/engines/" + info.engineId + "/scanners/" + info.scannerId;
+    info.sensorPath = info.scannerPath + "/sensors/sensor-0";
     info.profileSourceId = profileSourceForEngine(info.engineId, info.scannerId);
     info.model = sensor.At("/model").Get<std::string>();
     info.serialNumber = sensor.At("/serialNumber").Get<std::string>();
@@ -181,11 +182,6 @@ void GocatorSettingsManager::configureScanTuning(const ScannerInfo& scanner, con
     payload << "{"
             << "\"parameters\":{";
 
-    if (options.updateExposure)
-    {
-        payload << "\"exposure\":" << options.exposure << ",";
-    }
-
     payload << "\"scanModeSettings\":{"
             << "\"scanMode\":" << options.profileMode.scanMode << ","
             << "\"intensityEnabled\":" << (options.profileMode.intensityEnabled ? "true" : "false") << ","
@@ -193,6 +189,48 @@ void GocatorSettingsManager::configureScanTuning(const ScannerInfo& scanner, con
             << "}}}";
 
     update(scanner.scannerPath, GoPxLSdk::GoJson(payload.str()));
+
+    if (options.updateExposure)
+    {
+        std::ostringstream sensorPayload;
+        sensorPayload << "{"
+                      << "\"parameters\":{"
+                      << "\"exposureSettings\":{"
+                      << "\"exposureMode\":0,"
+                      << "\"singleExposure\":" << options.exposure
+                      << "}}}";
+
+        update(scanner.sensorPath, GoPxLSdk::GoJson(sensorPayload.str()));
+    }
+
+    if (options.updateActiveArea)
+    {
+        std::ostringstream sensorPayload;
+        sensorPayload << "{"
+                      << "\"parameters\":{"
+                      << "\"activeAreaSettings\":{"
+                      << "\"activeArea\":{"
+                      << "\"z\":" << options.activeAreaZ << ","
+                      << "\"height\":" << options.activeAreaHeight
+                      << "}}}}";
+
+        update(scanner.sensorPath, GoPxLSdk::GoJson(sensorPayload.str()));
+    }
+
+    if (options.updateFlexSpotThreshold)
+    {
+        std::ostringstream sensorPayload;
+        sensorPayload << "{"
+                      << "\"parameters\":{"
+                      << "\"advancedSettings\":{"
+                      << "\"materialType\":0,"
+                      << "\"spotDetection\":{"
+                      << "\"flexSpots\":{"
+                      << "\"threshold\":" << options.flexSpotThreshold
+                      << "}}}}}";
+
+        update(scanner.sensorPath, GoPxLSdk::GoJson(sensorPayload.str()));
+    }
 }
 
 ScannerInfo GocatorSettingsManager::prepareProfileOutput(const ProfileModeOptions& options)

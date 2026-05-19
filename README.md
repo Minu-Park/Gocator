@@ -39,6 +39,8 @@ cmake --build cmake-build-debug -j 8
 ./cmake-build-debug/gocator_settings <sensor-ip> info
 ./cmake-build-debug/gocator_settings <sensor-ip> read /scan/visibleSensors/
 ./cmake-build-debug/gocator_settings <sensor-ip> profile-output
+./cmake-build-debug/gocator_settings <sensor-ip> profile-test 2 1 1 5000 10000 10
+./cmake-build-debug/gocator_settings <sensor-ip> source-test 0 scan:LMIConfocalLineProfiler:scanner-0:sensor-0Image0
 ./cmake-build-debug/gocator_debug_ui
 ```
 

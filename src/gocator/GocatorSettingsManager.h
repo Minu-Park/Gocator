@@ -22,6 +22,7 @@ struct ScannerInfo
     std::string engineId;
     std::string scannerId;
     std::string scannerPath;
+    std::string sensorPath;
     std::string profileSourceId;
     std::string model;
     std::string serialNumber;
@@ -39,6 +40,11 @@ struct ScanTuningOptions
     ProfileModeOptions profileMode;
     bool updateExposure = false;
     int exposure = 1000;
+    bool updateActiveArea = false;
+    double activeAreaZ = 0.0;
+    double activeAreaHeight = 1.1;
+    bool updateFlexSpotThreshold = false;
+    int flexSpotThreshold = 12;
 };
 
 class GocatorSettingsManager

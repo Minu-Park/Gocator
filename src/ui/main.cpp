@@ -82,6 +82,7 @@ std::string scannerInfoText(const gocator::ScannerInfo& scanner)
         << "engine=" << scanner.engineId << '\n'
         << "scannerId=" << scanner.scannerId << '\n'
         << "scannerPath=" << scanner.scannerPath << '\n'
+        << "sensorPath=" << scanner.sensorPath << '\n'
         << "profileSource=" << scanner.profileSourceId;
     return out.str();
 }
@@ -91,7 +92,8 @@ std::string frameText(const gocator::GocatorFrame& frame)
     std::ostringstream out;
     out << "messages=" << frame.messageCount << '\n'
         << "images=" << frame.images.size() << '\n'
-        << "profiles=" << frame.profiles.size();
+        << "profiles=" << frame.profiles.size() << '\n'
+        << "spots=" << frame.spots.size();
 
     for (const gocator::GocatorFrameMessage& message : frame.messages)
     {
@@ -113,6 +115,13 @@ std::string frameText(const gocator::GocatorFrame& frame)
             << " format=" << image.pixelFormatName
             << " bytes=" << image.dataSize
             << " source=" << image.sourceId;
+        if (image.hasByteStats)
+        {
+            out << " byte[min,max,mean]="
+                << static_cast<int>(image.minByte) << ","
+                << static_cast<int>(image.maxByte) << ","
+                << image.meanByte;
+        }
     }
 
     for (const gocator::GocatorProfileFrame& profile : frame.profiles)
@@ -140,6 +149,18 @@ std::string frameText(const gocator::GocatorFrame& frame)
                 << profile.minIntensity << ","
                 << profile.maxIntensity;
         }
+    }
+
+    for (const gocator::GocatorSpotsFrame& spots : frame.spots)
+    {
+        out << '\n'
+            << "spots "
+            << "points=" << spots.pointCount
+            << " exposure=" << spots.exposure
+            << " columnBased=" << spots.columnBased
+            << " center[min,max]=" << spots.spotCenterMin << ","
+            << spots.spotCenterMax
+            << " source=" << spots.sourceId;
     }
 
     return out.str();

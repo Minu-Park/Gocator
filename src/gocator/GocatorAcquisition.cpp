@@ -11,6 +11,7 @@
 #include <GoPxLSdk/GoGdpMsg/GoGdpPixelFormat.h>
 #include <GoPxLSdk/GoGdpMsg/GoGdpProfilePointCloud.h>
 #include <GoPxLSdk/GoGdpMsg/GoGdpProfileUniform.h>
+#include <GoPxLSdk/GoGdpMsg/GoGdpSpots.h>
 #include <GoPxLSdk/GoSystem.h>
 #include <kApi/Data/kArray1.h>
 #include <kApi/Data/kArray2.h>
@@ -256,6 +257,10 @@ GocatorFrame GocatorAcquisition::frameFromDataSet(const GoPxLSdk::GoDataSet& dat
         {
             frame.profiles.push_back(pointCloudProfileFrame(message));
         }
+        else if (message.Type() == GoPxLSdk::MessageType::SPOTS)
+        {
+            frame.spots.push_back(spotsFrame(static_cast<const GoPxLSdk::GoGdpSpots&>(message)));
+        }
     }
 
     return frame;
@@ -294,6 +299,18 @@ GocatorImageFrame GocatorAcquisition::imageFrame(const GoPxLSdk::GoGdpImage& ima
         {
             frame.pixels.resize(frame.dataSize);
             std::memcpy(frame.pixels.data(), source, frame.dataSize);
+
+            std::uint64_t sum = 0;
+            frame.minByte = frame.pixels.front();
+            frame.maxByte = frame.pixels.front();
+            for (const std::uint8_t value : frame.pixels)
+            {
+                frame.minByte = std::min(frame.minByte, value);
+                frame.maxByte = std::max(frame.maxByte, value);
+                sum += value;
+            }
+            frame.meanByte = static_cast<double>(sum) / static_cast<double>(frame.pixels.size());
+            frame.hasByteStats = true;
         }
     }
 
@@ -437,6 +454,21 @@ GocatorProfileFrame GocatorAcquisition::pointCloudProfileFrame(const GoPxLSdk::G
         }
     }
 
+    return frame;
+}
+
+GocatorSpotsFrame GocatorAcquisition::spotsFrame(const GoPxLSdk::GoGdpSpots& spots)
+{
+    GocatorSpotsFrame frame;
+    frame.sourceId = spots.DataSourceId();
+    frame.dataSetId = spots.DataSetId();
+    frame.gdpId = spots.GdpId();
+    frame.pointCount = spots.PointCount();
+    frame.exposure = spots.Exposure();
+    frame.columnBased = spots.ColumnBased();
+    frame.maxSliceCount = spots.MaxSliceCount();
+    frame.spotCenterMin = spots.SpotCenterMin();
+    frame.spotCenterMax = spots.SpotCenterMax();
     return frame;
 }
 
