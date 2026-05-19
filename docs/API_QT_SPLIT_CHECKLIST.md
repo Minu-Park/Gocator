@@ -20,10 +20,12 @@
 - [x] `GocatorConnection` 추가: connect/disconnect/start/stop/port/timeout.
 - [x] `GocatorResourceClient` 추가: read/update/call/schema/child URI.
 - [x] Qt Widgets debug UI shell: discovery, connect info, resource read, profile output.
+- [x] `GocatorAcquisition` 추가: GDP connect/start/receive/stop, image metadata/pixel copy.
+- [x] Qt debug UI 개선: connection status, scanner info, output source, single grab, image preview.
 - [ ] `GocatorSettingsCatalog` 추가: schema 기반 writable/min/max/enum 추출.
 - [ ] `GocatorScanSettings` 추가: scanner detect, scan mode, intensity, spacing.
 - [ ] `GocatorOutputSettings` 추가: protocol enable, output clear/add, source 선택.
-- [ ] `GocatorAcquisition` 추가: GDP sync/async, 데이터 callback, stop/clear.
+- [ ] `GocatorAcquisition` 확장: async 데이터 callback, continuous grab, buffer policy.
 - [ ] API sample CLI 정리.
 - [ ] Qt adapter 설계.
 

@@ -4,20 +4,25 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <QApplication>
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QDateTime>
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QImage>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QPlainTextEdit>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTableWidget>
@@ -26,6 +31,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "gocator/GocatorAcquisition.h"
 #include "gocator/GocatorDiscovery.h"
 #include "gocator/GocatorSettingsManager.h"
 
@@ -40,11 +46,29 @@ struct OperationResult
     std::string message;
     std::string selectedAddress;
     std::vector<gocator::GocatorDeviceInfo> devices;
+
+    bool connectedKnown = false;
+    bool connected = false;
+    bool takeSettings = false;
+    bool clearSettings = false;
+    std::shared_ptr<gocator::GocatorSettingsManager> settings;
+
+    bool hasScanner = false;
+    gocator::ScannerInfo scanner;
+
+    bool hasFrame = false;
+    gocator::GocatorFrame frame;
 };
 
 QString toQString(const std::string& value)
 {
     return QString::fromStdString(value);
+}
+
+void appendLog(QPlainTextEdit& log, const QString& text)
+{
+    const QString now = QDateTime::currentDateTime().toString("HH:mm:ss");
+    log.appendPlainText(QString("[%1] %2").arg(now, text));
 }
 
 std::string scannerInfoText(const gocator::ScannerInfo& scanner)
@@ -53,15 +77,41 @@ std::string scannerInfoText(const gocator::ScannerInfo& scanner)
     out << "model=" << scanner.model << '\n'
         << "serial=" << scanner.serialNumber << '\n'
         << "engine=" << scanner.engineId << '\n'
+        << "scannerId=" << scanner.scannerId << '\n'
         << "scannerPath=" << scanner.scannerPath << '\n'
         << "profileSource=" << scanner.profileSourceId;
     return out.str();
 }
 
-void appendLog(QPlainTextEdit& log, const QString& text)
+std::string frameText(const gocator::GocatorFrame& frame)
 {
-    const QString now = QDateTime::currentDateTime().toString("HH:mm:ss");
-    log.appendPlainText(QString("[%1] %2").arg(now, text));
+    std::ostringstream out;
+    out << "messages=" << frame.messageCount << '\n'
+        << "images=" << frame.images.size();
+
+    for (const gocator::GocatorFrameMessage& message : frame.messages)
+    {
+        out << '\n'
+            << message.typeName
+            << " type=" << message.typeValue
+            << " source=" << message.sourceId
+            << " dataSet=" << message.dataSetId
+            << " gdpId=" << message.gdpId
+            << " last=" << (message.isLastMessage ? "yes" : "no");
+    }
+
+    for (const gocator::GocatorImageFrame& image : frame.images)
+    {
+        out << '\n'
+            << "image "
+            << image.width << "x" << image.height
+            << " pixelSize=" << image.pixelSize
+            << " format=" << image.pixelFormatName
+            << " bytes=" << image.dataSize
+            << " source=" << image.sourceId;
+    }
+
+    return out.str();
 }
 
 void setDevices(QTableWidget& table, const std::vector<gocator::GocatorDeviceInfo>& devices)
@@ -86,6 +136,62 @@ gocator::GocatorConnectionConfig configFromUi(const QLineEdit& address, const QS
         timeout.value());
 }
 
+QImage imagePreview(const gocator::GocatorImageFrame& frame)
+{
+    if (frame.width == 0 || frame.height == 0 || frame.pixels.empty())
+    {
+        return {};
+    }
+
+    const int width = static_cast<int>(frame.width);
+    const int height = static_cast<int>(frame.height);
+    const int pixelSize = static_cast<int>(frame.pixelSize);
+    const std::uint8_t* data = frame.pixels.data();
+
+    if (pixelSize == 1 && frame.pixels.size() >= static_cast<std::size_t>(width * height))
+    {
+        return QImage(data, width, height, width, QImage::Format_Grayscale8).copy();
+    }
+
+    if (pixelSize == 2 && frame.pixels.size() >= static_cast<std::size_t>(width * height * pixelSize))
+    {
+        QImage image(width, height, QImage::Format_Grayscale8);
+        for (int y = 0; y < height; ++y)
+        {
+            auto* target = image.scanLine(y);
+            const auto* source = data + static_cast<std::size_t>(y * width * pixelSize);
+            for (int x = 0; x < width; ++x)
+            {
+                target[x] = source[x * 2 + 1];
+            }
+        }
+        return image;
+    }
+
+    if (pixelSize == 3 && frame.pixels.size() >= static_cast<std::size_t>(width * height * pixelSize))
+    {
+        QImage image(data, width, height, width * pixelSize, QImage::Format_RGB888);
+        if (frame.pixelFormatName.find("BGR") != std::string::npos || frame.pixelFormatName.find("Bgr") != std::string::npos)
+        {
+            return image.rgbSwapped().copy();
+        }
+        return image.copy();
+    }
+
+    return {};
+}
+
+void setStatus(QLabel& state, QLabel& endpoint, QLabel& gdp, bool connected, const QString& endpointText)
+{
+    state.setText(connected ? "Connected" : "Disconnected");
+    state.setStyleSheet(connected ? "color: #0a7a2f; font-weight: 600;" : "color: #a12622; font-weight: 600;");
+    endpoint.setText(endpointText.isEmpty() ? "-" : endpointText);
+    if (!connected)
+    {
+        gdp.setText("-");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -94,7 +200,7 @@ int main(int argc, char** argv)
 
     QMainWindow window;
     window.setWindowTitle("Gocator Debug UI");
-    window.resize(980, 700);
+    window.resize(1180, 820);
 
     auto* central = new QWidget(&window);
     auto* root = new QVBoxLayout(central);
@@ -112,27 +218,85 @@ int main(int argc, char** argv)
     timeoutSpin->setValue(gocator::kDefaultCommandTimeoutMs);
     timeoutSpin->setSingleStep(1000);
 
+    auto* connectButton = new QPushButton("Connect", connectionBox);
+    auto* disconnectButton = new QPushButton("Disconnect", connectionBox);
+    auto* discoverButton = new QPushButton("Discover", connectionBox);
+
     connectionLayout->addWidget(new QLabel("IP", connectionBox));
     connectionLayout->addWidget(addressEdit, 3);
-    connectionLayout->addWidget(new QLabel("Control port", connectionBox));
+    connectionLayout->addWidget(new QLabel("Control", connectionBox));
     connectionLayout->addWidget(portSpin, 1);
-    connectionLayout->addWidget(new QLabel("Timeout ms", connectionBox));
+    connectionLayout->addWidget(new QLabel("Timeout", connectionBox));
     connectionLayout->addWidget(timeoutSpin, 1);
+    connectionLayout->addWidget(connectButton);
+    connectionLayout->addWidget(disconnectButton);
+    connectionLayout->addWidget(discoverButton);
 
-    auto* buttonRow = new QWidget(central);
-    auto* buttonLayout = new QHBoxLayout(buttonRow);
-    buttonLayout->setContentsMargins(0, 0, 0, 0);
+    auto* statusBox = new QGroupBox("Status", central);
+    auto* statusLayout = new QFormLayout(statusBox);
+    auto* statusValue = new QLabel("Disconnected", statusBox);
+    auto* endpointValue = new QLabel("-", statusBox);
+    auto* gdpValue = new QLabel("-", statusBox);
+    auto* frameValue = new QLabel("-", statusBox);
+    statusLayout->addRow("Connection", statusValue);
+    statusLayout->addRow("Endpoint", endpointValue);
+    statusLayout->addRow("GDP", gdpValue);
+    statusLayout->addRow("Last frame", frameValue);
 
-    auto* discoverButton = new QPushButton("Discover", buttonRow);
-    auto* infoButton = new QPushButton("Connect Info", buttonRow);
-    auto* profileButton = new QPushButton("Profile Output", buttonRow);
-    auto* clearLogButton = new QPushButton("Clear Log", buttonRow);
+    auto* infoBox = new QGroupBox("Scanner Info", central);
+    auto* infoLayout = new QVBoxLayout(infoBox);
+    auto* infoButton = new QPushButton("Refresh Info", infoBox);
+    auto* scannerInfoEdit = new QPlainTextEdit(infoBox);
+    scannerInfoEdit->setReadOnly(true);
+    scannerInfoEdit->setMaximumHeight(130);
+    infoLayout->addWidget(infoButton);
+    infoLayout->addWidget(scannerInfoEdit);
 
-    buttonLayout->addWidget(discoverButton);
-    buttonLayout->addWidget(infoButton);
-    buttonLayout->addWidget(profileButton);
-    buttonLayout->addStretch(1);
-    buttonLayout->addWidget(clearLogButton);
+    auto* topRow = new QWidget(central);
+    auto* topLayout = new QHBoxLayout(topRow);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->addWidget(statusBox, 1);
+    topLayout->addWidget(infoBox, 2);
+
+    auto* acquisitionBox = new QGroupBox("Acquisition", central);
+    auto* acquisitionLayout = new QVBoxLayout(acquisitionBox);
+    auto* acquisitionControls = new QWidget(acquisitionBox);
+    auto* acquisitionControlsLayout = new QHBoxLayout(acquisitionControls);
+    acquisitionControlsLayout->setContentsMargins(0, 0, 0, 0);
+
+    auto* outputSourceEdit = new QLineEdit(acquisitionBox);
+    outputSourceEdit->setPlaceholderText("GDP output source");
+    auto* receiveTimeoutSpin = new QSpinBox(acquisitionBox);
+    receiveTimeoutSpin->setRange(100, 120000);
+    receiveTimeoutSpin->setValue(10000);
+    receiveTimeoutSpin->setSingleStep(1000);
+    auto* profileButton = new QPushButton("Profile Output", acquisitionBox);
+    auto* setOutputButton = new QPushButton("Set Output", acquisitionBox);
+    auto* grabButton = new QPushButton("Grab One", acquisitionBox);
+
+    acquisitionControlsLayout->addWidget(new QLabel("Source", acquisitionControls));
+    acquisitionControlsLayout->addWidget(outputSourceEdit, 4);
+    acquisitionControlsLayout->addWidget(new QLabel("Receive ms", acquisitionControls));
+    acquisitionControlsLayout->addWidget(receiveTimeoutSpin, 1);
+    acquisitionControlsLayout->addWidget(profileButton);
+    acquisitionControlsLayout->addWidget(setOutputButton);
+    acquisitionControlsLayout->addWidget(grabButton);
+
+    auto* acquisitionBody = new QWidget(acquisitionBox);
+    auto* acquisitionBodyLayout = new QHBoxLayout(acquisitionBody);
+    acquisitionBodyLayout->setContentsMargins(0, 0, 0, 0);
+    auto* acquisitionInfoEdit = new QPlainTextEdit(acquisitionBody);
+    acquisitionInfoEdit->setReadOnly(true);
+    acquisitionInfoEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
+    auto* imagePreviewLabel = new QLabel("No image", acquisitionBody);
+    imagePreviewLabel->setAlignment(Qt::AlignCenter);
+    imagePreviewLabel->setMinimumSize(320, 220);
+    imagePreviewLabel->setStyleSheet("border: 1px solid #9a9a9a; background: #202020; color: #e0e0e0;");
+    acquisitionBodyLayout->addWidget(acquisitionInfoEdit, 2);
+    acquisitionBodyLayout->addWidget(imagePreviewLabel, 1);
+
+    acquisitionLayout->addWidget(acquisitionControls);
+    acquisitionLayout->addWidget(acquisitionBody);
 
     auto* resourceBox = new QGroupBox("Resource Read", central);
     auto* resourceLayout = new QHBoxLayout(resourceBox);
@@ -147,24 +311,39 @@ int main(int argc, char** argv)
     devicesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     devicesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
+    auto* logHeader = new QWidget(central);
+    auto* logHeaderLayout = new QHBoxLayout(logHeader);
+    logHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    logHeaderLayout->addWidget(new QLabel("Log", logHeader));
+    logHeaderLayout->addStretch(1);
+    auto* clearLogButton = new QPushButton("Clear Log", logHeader);
+    logHeaderLayout->addWidget(clearLogButton);
+
     auto* logEdit = new QPlainTextEdit(central);
     logEdit->setReadOnly(true);
     logEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
 
     root->addWidget(connectionBox);
-    root->addWidget(buttonRow);
+    root->addWidget(topRow);
+    root->addWidget(acquisitionBox, 2);
     root->addWidget(resourceBox);
     root->addWidget(new QLabel("Discovered devices", central));
     root->addWidget(devicesTable, 2);
-    root->addWidget(new QLabel("Log", central));
-    root->addWidget(logEdit, 3);
+    root->addWidget(logHeader);
+    root->addWidget(logEdit, 2);
 
     window.setCentralWidget(central);
 
+    std::shared_ptr<gocator::GocatorSettingsManager> connectedSettings;
+
     std::vector<QPushButton*> actionButtons = {
+        connectButton,
+        disconnectButton,
         discoverButton,
         infoButton,
         profileButton,
+        setOutputButton,
+        grabButton,
         readButton,
     };
 
@@ -187,6 +366,66 @@ int main(int argc, char** argv)
         }
     };
 
+    auto applyResult = [&](const OperationResult& result) {
+        if (!result.devices.empty())
+        {
+            setDevices(*devicesTable, result.devices);
+        }
+        if (!result.selectedAddress.empty())
+        {
+            addressEdit->setText(toQString(result.selectedAddress));
+        }
+        if (result.clearSettings)
+        {
+            connectedSettings.reset();
+        }
+        if (result.takeSettings)
+        {
+            connectedSettings = result.settings;
+        }
+        if (result.connectedKnown)
+        {
+            const QString endpoint = QString("%1:%2").arg(addressEdit->text().trimmed()).arg(portSpin->value());
+            setStatus(*statusValue, *endpointValue, *gdpValue, result.connected, endpoint);
+        }
+        if (result.hasScanner)
+        {
+            scannerInfoEdit->setPlainText(toQString(scannerInfoText(result.scanner)));
+            if (outputSourceEdit->text().trimmed().isEmpty())
+            {
+                outputSourceEdit->setText(toQString(result.scanner.profileSourceId));
+            }
+        }
+        if (result.hasFrame)
+        {
+            const std::string text = frameText(result.frame);
+            acquisitionInfoEdit->setPlainText(toQString(text));
+            frameValue->setText(QString("messages=%1 images=%2")
+                .arg(result.frame.messageCount)
+                .arg(result.frame.images.size()));
+
+            if (!result.frame.images.empty())
+            {
+                const QImage preview = imagePreview(result.frame.images.front());
+                if (!preview.isNull())
+                {
+                    imagePreviewLabel->setPixmap(QPixmap::fromImage(preview).scaled(
+                        imagePreviewLabel->size(),
+                        Qt::KeepAspectRatio,
+                        Qt::SmoothTransformation));
+                }
+                else
+                {
+                    imagePreviewLabel->setText("Image format not previewed");
+                }
+            }
+            else
+            {
+                imagePreviewLabel->setText("No image in frame");
+            }
+        }
+    };
+
     auto runOperation = [&](const QString& title, std::function<OperationResult()> task) {
         appendLog(*logEdit, title + "...");
         setBusy(true);
@@ -199,11 +438,11 @@ int main(int argc, char** argv)
                 }
                 catch (const std::exception& e)
                 {
-                    return OperationResult{false, e.what(), {}, {}};
+                    return OperationResult{false, e.what()};
                 }
                 catch (...)
                 {
-                    return OperationResult{false, "Unknown error", {}, {}};
+                    return OperationResult{false, "Unknown error"};
                 }
             }));
 
@@ -216,21 +455,31 @@ int main(int argc, char** argv)
 
             timer->stop();
             const OperationResult result = future->get();
-            if (!result.devices.empty())
-            {
-                setDevices(*devicesTable, result.devices);
-            }
-            if (!result.selectedAddress.empty())
-            {
-                addressEdit->setText(toQString(result.selectedAddress));
-            }
-
+            applyResult(result);
             appendLog(*logEdit, QString("%1: %2")
                 .arg(result.ok ? "OK" : "ERROR", toQString(result.message)));
             setBusy(false);
             timer->deleteLater();
         });
         timer->start(50);
+    };
+
+    auto configOrLog = [&]() -> std::optional<gocator::GocatorConnectionConfig> {
+        try
+        {
+            return configFromUi(*addressEdit, *portSpin, *timeoutSpin);
+        }
+        catch (const std::exception& e)
+        {
+            appendLog(*logEdit, QString("ERROR: %1").arg(e.what()));
+            return std::nullopt;
+        }
+    };
+
+    auto connectTemporarySettings = [](const gocator::GocatorConnectionConfig& config) {
+        auto settings = std::make_shared<gocator::GocatorSettingsManager>(config);
+        settings->connect();
+        return settings;
     };
 
     QObject::connect(clearLogButton, &QPushButton::clicked, logEdit, &QPlainTextEdit::clear);
@@ -281,36 +530,154 @@ int main(int argc, char** argv)
         });
     });
 
-    QObject::connect(infoButton, &QPushButton::clicked, &window, [&] {
-        const gocator::GocatorConnectionConfig config = configFromUi(*addressEdit, *portSpin, *timeoutSpin);
-        runOperation("Connect Info", [config] {
-            gocator::GocatorSettingsManager settings(config);
-            settings.connect();
-            const gocator::ScannerInfo scanner = settings.detectPrimaryScanner();
-            return OperationResult{true, scannerInfoText(scanner), {}, {}};
+    QObject::connect(connectButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        runOperation("Connect", [config = *config] {
+            auto settings = std::make_shared<gocator::GocatorSettingsManager>(config);
+            settings->connect();
+
+            OperationResult result;
+            result.ok = true;
+            result.connectedKnown = true;
+            result.connected = true;
+            result.takeSettings = true;
+            result.settings = settings;
+            result.scanner = settings->detectPrimaryScanner();
+            result.hasScanner = true;
+            result.message = scannerInfoText(result.scanner);
+            return result;
         });
     });
 
-    QObject::connect(readButton, &QPushButton::clicked, &window, [&] {
-        const gocator::GocatorConnectionConfig config = configFromUi(*addressEdit, *portSpin, *timeoutSpin);
-        const std::string path = resourcePathEdit->text().trimmed().toStdString();
-        runOperation("Read " + resourcePathEdit->text().trimmed(), [config, path] {
-            gocator::GocatorSettingsManager settings(config);
-            settings.connect();
-            return OperationResult{true, settings.read(path).ToString(), {}, {}};
+    QObject::connect(disconnectButton, &QPushButton::clicked, &window, [&] {
+        auto settings = connectedSettings;
+        runOperation("Disconnect", [settings] {
+            if (settings)
+            {
+                settings->disconnect();
+            }
+
+            OperationResult result;
+            result.ok = true;
+            result.connectedKnown = true;
+            result.connected = false;
+            result.clearSettings = true;
+            result.message = "disconnected";
+            return result;
+        });
+    });
+
+    QObject::connect(infoButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        auto existingSettings = connectedSettings;
+        runOperation("Refresh Info", [&, config = *config, existingSettings] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            OperationResult result;
+            result.ok = true;
+            result.connectedKnown = true;
+            result.connected = settings->isConnected();
+            result.scanner = settings->detectPrimaryScanner();
+            result.hasScanner = true;
+            result.message = scannerInfoText(result.scanner);
+            return result;
         });
     });
 
     QObject::connect(profileButton, &QPushButton::clicked, &window, [&] {
-        const gocator::GocatorConnectionConfig config = configFromUi(*addressEdit, *portSpin, *timeoutSpin);
-        runOperation("Profile Output", [config] {
-            gocator::GocatorSettingsManager settings(config);
-            settings.connect();
-            const gocator::ScannerInfo scanner = settings.prepareProfileOutput();
-            return OperationResult{true, "configured\n" + scannerInfoText(scanner), {}, {}};
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        auto existingSettings = connectedSettings;
+        runOperation("Profile Output", [&, config = *config, existingSettings] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            OperationResult result;
+            result.scanner = settings->prepareProfileOutput();
+            result.hasScanner = true;
+            result.ok = true;
+            result.message = "configured\n" + scannerInfoText(result.scanner);
+            return result;
         });
     });
 
+    QObject::connect(setOutputButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        const std::string source = outputSourceEdit->text().trimmed().toStdString();
+        auto existingSettings = connectedSettings;
+        runOperation("Set Output", [&, config = *config, existingSettings, source] {
+            if (source.empty())
+            {
+                throw std::invalid_argument("Output source is empty");
+            }
+
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            settings->stopIfRunning();
+            settings->enableGocatorProtocol(true);
+            settings->clearGocatorOutputs();
+            settings->addOutput(source);
+
+            OperationResult result;
+            result.ok = true;
+            result.message = "output=" + source;
+            return result;
+        });
+    });
+
+    QObject::connect(grabButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        const int receiveTimeoutMs = receiveTimeoutSpin->value();
+        runOperation("Grab One", [config = *config, receiveTimeoutMs] {
+            gocator::GocatorAcquisition acquisition(config);
+            OperationResult result;
+            result.frame = acquisition.grabOne(receiveTimeoutMs);
+            result.hasFrame = true;
+            result.ok = true;
+            result.message = frameText(result.frame);
+            return result;
+        });
+    });
+
+    QObject::connect(readButton, &QPushButton::clicked, &window, [&] {
+        const auto config = configOrLog();
+        if (!config)
+        {
+            return;
+        }
+
+        const std::string path = resourcePathEdit->text().trimmed().toStdString();
+        auto existingSettings = connectedSettings;
+        runOperation("Read " + resourcePathEdit->text().trimmed(), [&, config = *config, existingSettings, path] {
+            auto settings = existingSettings ? existingSettings : connectTemporarySettings(config);
+            OperationResult result;
+            result.ok = true;
+            result.message = settings->read(path).ToString();
+            return result;
+        });
+    });
+
+    setStatus(*statusValue, *endpointValue, *gdpValue, false, {});
     appendLog(*logEdit, "Ready");
     window.show();
 

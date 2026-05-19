@@ -16,3 +16,4 @@
 - 2026-05-19: `GocatorConnection` 추가. 원인: 연결 생명주기와 설정 작업 책임 혼재. 결과: connect/disconnect/start/stop/port/timeout API 분리, settings manager는 연결 객체 재사용.
 - 2026-05-19: `GocatorResourceClient` 추가. 원인: REST primitive와 설정 workflow 책임 혼재. 결과: read/update/call/schema/child URI API 분리, settings manager는 resource client 재사용.
 - 2026-05-19: `gocator_debug_ui` 추가. 원인: CLI 반복 디버깅 비용. 결과: Qt Widgets에서 discovery/connect/read/profile-output 수동 확인 가능, API class는 유지.
+- 2026-05-19: `GocatorAcquisition` 및 UI grab 추가. 원인: 이미지/GDP 취득 디버깅 필요. 결과: single-frame GDP receive, image metadata/pixel copy, UI 상태/정보/preview 분리.

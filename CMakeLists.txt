@@ -16,6 +16,7 @@ if(GOCATOR_BUILD_QT_UI AND NOT CMAKE_PREFIX_PATH AND EXISTS "${GOCATOR_DEFAULT_Q
 endif()
 
 add_library(gocator_core
+    src/gocator/GocatorAcquisition.cpp
     src/gocator/GocatorConnection.cpp
     src/gocator/GocatorDiscovery.cpp
     src/gocator/GocatorResourceClient.cpp
