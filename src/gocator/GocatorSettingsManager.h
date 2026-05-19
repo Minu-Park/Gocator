@@ -1,11 +1,11 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <string>
 
 #include <GoPxLSdk/GoJson.h>
 
+#include "gocator/GocatorConnection.h"
 #include "gocator/GocatorTypes.h"
 
 namespace GoPxLSdk
@@ -62,8 +62,7 @@ private:
     GoPxLSdk::GoSystem& system();
     const GoPxLSdk::GoSystem& system() const;
 
-    GocatorConnectionConfig config_;
-    std::unique_ptr<GoPxLSdk::GoSystem> system_;
+    GocatorConnection connection_;
 };
 
 } // namespace gocator

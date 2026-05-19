@@ -6,9 +6,6 @@
 
 #include <GoPxLSdk/Def.h>
 #include <GoPxLSdk/GoSystem.h>
-#include <kApi/Io/kNetwork.h>
-
-#include "gocator/GocatorSdkRuntime.h"
 
 namespace gocator
 {
@@ -66,18 +63,8 @@ std::string profileSourceForEngine(const std::string& engineId, const std::strin
 } // namespace
 
 GocatorSettingsManager::GocatorSettingsManager(GocatorConnectionConfig config)
-    : config_(std::move(config))
+    : connection_(std::move(config))
 {
-    GocatorSdkRuntime::ensureInitialized();
-
-    kIpAddress address = {};
-    const kStatus parseStatus = kIpAddress_Parse(&address, config_.address.c_str());
-    if (parseStatus != kOK)
-    {
-        throw std::invalid_argument("Invalid Gocator IP address: " + config_.address);
-    }
-
-    system_ = std::make_unique<GoPxLSdk::GoSystem>(address, config_.controlPort);
 }
 
 GocatorSettingsManager::~GocatorSettingsManager()
@@ -87,31 +74,17 @@ GocatorSettingsManager::~GocatorSettingsManager()
 
 void GocatorSettingsManager::connect()
 {
-    system().Connect();
+    connection_.connect();
 }
 
 void GocatorSettingsManager::disconnect() noexcept
 {
-    if (!system_)
-    {
-        return;
-    }
-
-    try
-    {
-        if (system_->IsConnected())
-        {
-            system_->Disconnect();
-        }
-    }
-    catch (...)
-    {
-    }
+    connection_.disconnect();
 }
 
 bool GocatorSettingsManager::isConnected()
 {
-    return system().IsConnected();
+    return connection_.isConnected();
 }
 
 GoPxLSdk::GoJson GocatorSettingsManager::read(const std::string& path)
@@ -121,12 +94,12 @@ GoPxLSdk::GoJson GocatorSettingsManager::read(const std::string& path)
 
 void GocatorSettingsManager::update(const std::string& path, const GoPxLSdk::GoJson& payload)
 {
-    system().Client().Update(path, payload).CheckResponse(config_.commandTimeoutMs);
+    system().Client().Update(path, payload).CheckResponse(connection_.commandTimeoutMs());
 }
 
 void GocatorSettingsManager::call(const std::string& path, const GoPxLSdk::GoJson& payload)
 {
-    system().Client().Call(path, payload).CheckResponse(config_.commandTimeoutMs);
+    system().Client().Call(path, payload).CheckResponse(connection_.commandTimeoutMs());
 }
 
 ScannerInfo GocatorSettingsManager::detectPrimaryScanner()
@@ -152,13 +125,7 @@ ScannerInfo GocatorSettingsManager::detectPrimaryScanner()
 
 void GocatorSettingsManager::stopIfRunning() noexcept
 {
-    try
-    {
-        system().Stop();
-    }
-    catch (...)
-    {
-    }
+    connection_.stopNoThrow();
 }
 
 void GocatorSettingsManager::enableGocatorProtocol(bool enabled)
@@ -210,22 +177,12 @@ ScannerInfo GocatorSettingsManager::prepareProfileOutput(const ProfileModeOption
 
 GoPxLSdk::GoSystem& GocatorSettingsManager::system()
 {
-    if (!system_)
-    {
-        throw std::logic_error("Gocator system is not initialized");
-    }
-
-    return *system_;
+    return connection_.system();
 }
 
 const GoPxLSdk::GoSystem& GocatorSettingsManager::system() const
 {
-    if (!system_)
-    {
-        throw std::logic_error("Gocator system is not initialized");
-    }
-
-    return *system_;
+    return connection_.system();
 }
 
 } // namespace gocator
