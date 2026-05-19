@@ -6,6 +6,7 @@
 #include <GoPxLSdk/GoJson.h>
 
 #include "gocator/GocatorConnection.h"
+#include "gocator/GocatorResourceClient.h"
 #include "gocator/GocatorTypes.h"
 
 namespace GoPxLSdk
@@ -63,6 +64,7 @@ private:
     const GoPxLSdk::GoSystem& system() const;
 
     GocatorConnection connection_;
+    GocatorResourceClient resources_;
 };
 
 } // namespace gocator

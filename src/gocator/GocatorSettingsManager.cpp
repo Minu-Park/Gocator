@@ -64,6 +64,7 @@ std::string profileSourceForEngine(const std::string& engineId, const std::strin
 
 GocatorSettingsManager::GocatorSettingsManager(GocatorConnectionConfig config)
     : connection_(std::move(config))
+    , resources_(connection_)
 {
 }
 
@@ -89,17 +90,17 @@ bool GocatorSettingsManager::isConnected()
 
 GoPxLSdk::GoJson GocatorSettingsManager::read(const std::string& path)
 {
-    return system().Client().Read(path).GetResponse().Payload();
+    return resources_.read(path);
 }
 
 void GocatorSettingsManager::update(const std::string& path, const GoPxLSdk::GoJson& payload)
 {
-    system().Client().Update(path, payload).CheckResponse(connection_.commandTimeoutMs());
+    resources_.update(path, payload);
 }
 
 void GocatorSettingsManager::call(const std::string& path, const GoPxLSdk::GoJson& payload)
 {
-    system().Client().Call(path, payload).CheckResponse(connection_.commandTimeoutMs());
+    resources_.call(path, payload);
 }
 
 ScannerInfo GocatorSettingsManager::detectPrimaryScanner()

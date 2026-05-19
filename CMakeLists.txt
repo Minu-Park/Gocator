@@ -12,6 +12,7 @@ set(GOPXL_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/GoPxL-SDK" CACHE PATH "GoPxL SDK 
 add_library(gocator_core
     src/gocator/GocatorConnection.cpp
     src/gocator/GocatorDiscovery.cpp
+    src/gocator/GocatorResourceClient.cpp
     src/gocator/GocatorSdkRuntime.cpp
     src/gocator/GocatorSettingsManager.cpp
 )

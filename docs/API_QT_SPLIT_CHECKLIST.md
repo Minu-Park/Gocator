@@ -18,7 +18,7 @@
 - [x] `GocatorDiscovery` 추가: 자동 리스트, manual IP fallback.
 - [x] CLion no-arg smoke path: SDK discovery first, manual `192.168.1.10` info fallback.
 - [x] `GocatorConnection` 추가: connect/disconnect/start/stop/port/timeout.
-- [ ] `GocatorResourceClient` 추가: read/update/call/schema/child URI.
+- [x] `GocatorResourceClient` 추가: read/update/call/schema/child URI.
 - [ ] `GocatorSettingsCatalog` 추가: schema 기반 writable/min/max/enum 추출.
 - [ ] `GocatorScanSettings` 추가: scanner detect, scan mode, intensity, spacing.
 - [ ] `GocatorOutputSettings` 추가: protocol enable, output clear/add, source 선택.
