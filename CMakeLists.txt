@@ -19,6 +19,7 @@ add_library(gocator_core
     src/gocator/GocatorAcquisition.cpp
     src/gocator/GocatorConnection.cpp
     src/gocator/GocatorDiscovery.cpp
+    src/gocator/GocatorParameterSet.cpp
     src/gocator/GocatorResourceClient.cpp
     src/gocator/GocatorSdkRuntime.cpp
     src/gocator/GocatorSettingsManager.cpp

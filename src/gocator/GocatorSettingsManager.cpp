@@ -7,6 +7,8 @@
 #include <GoPxLSdk/Def.h>
 #include <GoPxLSdk/GoSystem.h>
 
+#include "gocator/GocatorParameterSet.h"
+
 namespace gocator
 {
 namespace
@@ -283,6 +285,106 @@ std::vector<std::string> GocatorSettingsManager::listSources(const std::string& 
         // Fallback or empty
     }
     return sources;
+}
+
+GoPxLSdk::GoJson GocatorSettingsManager::readParameters(const std::string& path)
+{
+    GoPxLSdk::GoJson resource = read(path);
+    if (resource.HasKey("parameters"))
+    {
+        return resource.At("/parameters");
+    }
+    return GoPxLSdk::GoJson("{}");
+}
+
+void GocatorSettingsManager::updateParameters(const std::string& path, const GoPxLSdk::GoJson& parameters)
+{
+    GoPxLSdk::GoJson payload;
+    payload.Set("/parameters", parameters);
+    update(path, payload);
+}
+
+std::vector<std::string> GocatorSettingsManager::listTools()
+{
+    std::vector<std::string> tools;
+    try
+    {
+        GoPxLSdk::GoJson data = read("/tools");
+        if (data.HasKey("_embedded") && data.At("/_embedded").HasKey("go:item"))
+        {
+            GoPxLSdk::GoJson items = data.At("/_embedded/go:item");
+            for (std::size_t i = 0; i < items.Size(); ++i)
+            {
+                tools.push_back(items.At("/" + std::to_string(i) + "/id").Get<std::string>());
+            }
+        }
+    }
+    catch (...)
+    {
+    }
+    return tools;
+}
+
+GoPxLSdk::GoJson GocatorSettingsManager::readTool(const std::string& toolId)
+{
+    return read("/tools/" + toolId);
+}
+
+GoPxLSdk::GoJson GocatorSettingsManager::readToolParameters(const std::string& toolId)
+{
+    return readParameters("/tools/" + toolId);
+}
+
+GocatorParameterSet GocatorSettingsManager::readAllConfig()
+{
+    GocatorParameterSet config;
+    ScannerInfo scanner = detectPrimaryScanner();
+
+    config.addParameter("scanner", readParameters(scanner.scannerPath));
+    config.addParameter("sensor", readParameters(scanner.sensorPath));
+
+    GoPxLSdk::GoJson tools;
+    std::vector<std::string> toolIds = listTools();
+    for (const std::string& id : toolIds)
+    {
+        tools.Set(id, readToolParameters(id));
+    }
+    config.addParameter("tools", tools);
+
+    return config;
+}
+
+void GocatorSettingsManager::applyConfig(const GocatorParameterSet& config)
+{
+    ScannerInfo scanner = detectPrimaryScanner();
+
+    if (config.hasParameter("scanner"))
+    {
+        updateParameters(scanner.scannerPath, config.getParameter("scanner"));
+    }
+
+    if (config.hasParameter("sensor"))
+    {
+        updateParameters(scanner.sensorPath, config.getParameter("sensor"));
+    }
+
+    if (config.hasParameter("tools"))
+    {
+        GoPxLSdk::GoJson tools = config.getParameter("tools");
+        // For tools, we might want to match by ID.
+        // Simplified: just update existing tools if they match.
+        for (auto it = tools.Begin(); it != tools.End(); it++)
+        {
+            try
+            {
+                updateParameters("/tools/" + it.Key(), it.Value());
+            }
+            catch (...)
+            {
+                // Tool might not exist on the target sensor
+            }
+        }
+    }
 }
 
 GoPxLSdk::GoSystem& GocatorSettingsManager::system()

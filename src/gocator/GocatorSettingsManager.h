@@ -6,6 +6,7 @@
 #include <GoPxLSdk/GoJson.h>
 
 #include "gocator/GocatorConnection.h"
+#include "gocator/GocatorParameterSet.h"
 #include "gocator/GocatorResourceClient.h"
 #include "gocator/GocatorTypes.h"
 
@@ -76,6 +77,16 @@ public:
     ScannerInfo prepareProfileOutput(const ProfileModeOptions& options = {});
     ScannerInfo prepareSurfaceOutput(const ProfileModeOptions& options = {});
     std::vector<std::string> listSources(const std::string& scannerPath);
+
+    GoPxLSdk::GoJson readParameters(const std::string& path);
+    void updateParameters(const std::string& path, const GoPxLSdk::GoJson& parameters);
+
+    std::vector<std::string> listTools();
+    GoPxLSdk::GoJson readTool(const std::string& toolId);
+    GoPxLSdk::GoJson readToolParameters(const std::string& toolId);
+
+    GocatorParameterSet readAllConfig();
+    void applyConfig(const GocatorParameterSet& config);
 
 private:
     GoPxLSdk::GoSystem& system();

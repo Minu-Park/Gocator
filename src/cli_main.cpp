@@ -1,4 +1,5 @@
 #include <exception>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -6,6 +7,7 @@
 #include "gocator/GocatorAcquisition.h"
 #include "gocator/GocatorDiscovery.h"
 #include "gocator/GocatorSettingsManager.h"
+#include "gocator/GocatorParameterSet.h"
 
 namespace
 {
@@ -23,6 +25,12 @@ void printUsage(const char* app)
               << "  " << app << " <sensor-ip> update <resource-path> <json-payload>\n"
               << "  " << app << " <sensor-ip> scanner-read\n"
               << "  " << app << " <sensor-ip> scanner-schema\n"
+              << "  " << app << " <sensor-ip> params-all\n"
+              << "  " << app << " <sensor-ip> params-flat\n"
+              << "  " << app << " <sensor-ip> tool-list\n"
+              << "  " << app << " <sensor-ip> tool-params <tool-id>\n"
+              << "  " << app << " <sensor-ip> config-save <filename.json>\n"
+              << "  " << app << " <sensor-ip> config-load <filename.json>\n"
               << "  " << app << " <sensor-ip> tune <scan-mode> <intensity 0|1> <uniform 0|1> [exposure|-]\n"
               << "  " << app << " <sensor-ip> profile-output\n"
               << "  " << app << " <sensor-ip> grab [receive-ms] [frames]\n"
@@ -668,6 +676,92 @@ int run_cli(int argc, char** argv)
         {
             const gocator::ScannerInfo scanner = settings.detectPrimaryScanner();
             std::cout << settings.schema(scanner.scannerPath).ToString() << '\n';
+            return 0;
+        }
+
+        if (command == "params-all")
+        {
+            const gocator::ScannerInfo scanner = settings.detectPrimaryScanner();
+            GoPxLSdk::GoJson allParams;
+            allParams.Set("/scanner", settings.readParameters(scanner.scannerPath));
+            allParams.Set("/sensor", settings.readParameters(scanner.sensorPath));
+            std::cout << allParams.ToString() << '\n';
+            return 0;
+        }
+
+        if (command == "params-flat")
+        {
+            const gocator::ScannerInfo scanner = settings.detectPrimaryScanner();
+            GoPxLSdk::GoJson allParams;
+            allParams.Set("/scanner", settings.readParameters(scanner.scannerPath));
+            allParams.Set("/sensor", settings.readParameters(scanner.sensorPath));
+            
+            allParams.Flatten();
+            for (auto it = allParams.Begin(); it != allParams.End(); it++)
+            {
+                std::cout << it.Key() << " = " << it.Value().ToString() << '\n';
+            }
+            return 0;
+        }
+
+        if (command == "tool-list")
+        {
+            std::vector<std::string> tools = settings.listTools();
+            for (const std::string& toolId : tools)
+            {
+                std::cout << toolId << '\n';
+            }
+            return 0;
+        }
+
+        if (command == "tool-params")
+        {
+            if (argc < 4)
+            {
+                printUsage(argv[0]);
+                return 2;
+            }
+            std::cout << settings.readToolParameters(argv[3]).ToString() << '\n';
+            return 0;
+        }
+
+        if (command == "config-save")
+        {
+            if (argc < 4)
+            {
+                printUsage(argv[0]);
+                return 2;
+            }
+            const std::string filename = argv[3];
+            gocator::GocatorParameterSet config = settings.readAllConfig();
+            std::ofstream out(filename);
+            if (!out)
+            {
+                throw std::runtime_error("Cannot open file for writing: " + filename);
+            }
+            out << config.toJson().ToString();
+            std::cout << "Config saved to " << filename << '\n';
+            return 0;
+        }
+
+        if (command == "config-load")
+        {
+            if (argc < 4)
+            {
+                printUsage(argv[0]);
+                return 2;
+            }
+            const std::string filename = argv[3];
+            std::ifstream in(filename);
+            if (!in)
+            {
+                throw std::runtime_error("Cannot open file for reading: " + filename);
+            }
+            std::stringstream buffer;
+            buffer << in.rdbuf();
+            gocator::GocatorParameterSet config(GoPxLSdk::GoJson(buffer.str()));
+            settings.applyConfig(config);
+            std::cout << "Config loaded from " << filename << " and applied to sensor.\n";
             return 0;
         }
 
