@@ -110,11 +110,6 @@ GoPxLSdk::GoJson GocatorSettingsManager::schema(const std::string& path)
     return resources_.schema(path);
 }
 
-GoPxLSdk::GoJson GocatorSettingsManager::schemaFor(const std::string& path, const std::string& propertyPath)
-{
-    return resources_.schemaFor(path, propertyPath);
-}
-
 ScannerInfo GocatorSettingsManager::detectPrimaryScanner()
 {
     GoPxLSdk::GoJson sensorsRoot = read("/scan/visibleSensors/");
@@ -323,11 +318,6 @@ std::vector<std::string> GocatorSettingsManager::listTools()
     {
     }
     return tools;
-}
-
-GoPxLSdk::GoJson GocatorSettingsManager::readTool(const std::string& toolId)
-{
-    return read("/tools/" + toolId);
 }
 
 GoPxLSdk::GoJson GocatorSettingsManager::readToolParameters(const std::string& toolId)

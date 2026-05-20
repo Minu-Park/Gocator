@@ -247,8 +247,7 @@ void QGocatorWidget::onGrabOneClicked()
     if (!_gocator || _shuttingDown) return;
     setStatus(QStringLiteral("Starting"));
     _gocator->configure(scanLengthMm(), scanMode(), intensityEnabled(), uniformSpacingEnabled(), exposureUs());
-    _gocator->grab();
-    _gocator->stop();
+    _gocator->grab(1);
 }
 
 void QGocatorWidget::onGrabLiveToggled(bool toggled)
@@ -289,9 +288,18 @@ void QGocatorWidget::handleStatusChanged(Gocator::Status status, bool on)
 
 void QGocatorWidget::setConnectionOperationActive(bool active)
 {
-    _ipCombo->setEnabled(!active);
-    _toolRefresh->setEnabled(!active);
-    _toolConnect->setEnabled(!active);
+    if (active)
+    {
+        _ipCombo->setEnabled(false);
+        _toolRefresh->setEnabled(false);
+        _toolConnect->setEnabled(false);
+        return;
+    }
+
+    const bool opened = _gocator && _gocator->isOpened();
+    _ipCombo->setEnabled(!opened);
+    _toolRefresh->setEnabled(!opened);
+    _toolConnect->setEnabled(true);
 }
 
 void QGocatorWidget::applyConnectionState(bool opened)

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include <GoPxLSdk/GoJson.h>
 
@@ -20,9 +19,6 @@ public:
     void call(const std::string& path, const GoPxLSdk::GoJson& payload);
 
     GoPxLSdk::GoJson schema(const std::string& path);
-    GoPxLSdk::GoJson schemaFor(const std::string& path, const std::string& propertyPath);
-    std::vector<std::string> childUris(const std::string& path);
-    std::vector<std::string> childUris(const std::string& path, const std::string& relationType);
 
 private:
     GocatorConnection& connection_;

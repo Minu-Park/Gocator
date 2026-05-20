@@ -65,7 +65,6 @@ public:
     void update(const std::string& path, const GoPxLSdk::GoJson& payload);
     void call(const std::string& path, const GoPxLSdk::GoJson& payload);
     GoPxLSdk::GoJson schema(const std::string& path);
-    GoPxLSdk::GoJson schemaFor(const std::string& path, const std::string& propertyPath);
 
     ScannerInfo detectPrimaryScanner();
     void stopIfRunning() noexcept;
@@ -82,7 +81,6 @@ public:
     void updateParameters(const std::string& path, const GoPxLSdk::GoJson& parameters);
 
     std::vector<std::string> listTools();
-    GoPxLSdk::GoJson readTool(const std::string& toolId);
     GoPxLSdk::GoJson readToolParameters(const std::string& toolId);
 
     GocatorParameterSet readAllConfig();

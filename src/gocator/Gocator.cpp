@@ -1,6 +1,5 @@
 #include "gocator/Gocator.h"
 
-#include <GoApi/GoApiLib.h>
 #include <GoPxLSdk/GoDataSet.h>
 #include <GoPxLSdk/GoDiscoveryClient.h>
 #include <GoPxLSdk/GoGdpClient.h>
@@ -13,11 +12,12 @@
 
 #include <atomic>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <iostream>
 
-#include "gocator/GocatorAcquisition.h"
 #include "gocator/GocatorDiscovery.h"
+#include "gocator/GocatorSdkRuntime.h"
 
 namespace
 {
@@ -39,6 +39,13 @@ struct GocatorTarget
         throw std::runtime_error("invalid Gocator IP address: " + ipAddress);
     }
     return target;
+}
+
+[[nodiscard]] std::string ipAddressToString(const kIpAddress& address)
+{
+    kChar text[64] = {};
+    kIpAddress_Format(address, text, sizeof(text));
+    return text;
 }
 
 [[nodiscard]] GocatorTarget discoverTarget(int timeoutMs)
@@ -78,58 +85,16 @@ void enableGocatorProtocol(GoPxLSdk::GoSystem& system, int timeoutMs)
         .CheckResponse(static_cast<k64u>(timeoutMs));
 }
 
-void configureProfileOutput(GoPxLSdk::GoSystem& system, int timeoutMs)
-{
-    try { system.Stop(); } catch (...) {}
-
-    const std::string engineId = detectEngineId(system);
-    const std::string scannerPath = "/scan/engines/" + engineId + "/scanners/scanner-0";
-    const std::string profileSourceId = engineId == "LMIConfocalLineProfiler"
-        ? "scan:" + engineId + ":scanner-0:topUniformProfileLayer0"
-        : "scan:" + engineId + ":scanner-0:topUniformProfile";
-
-    try
-    {
-        system.Client()
-            .Update(scannerPath,
-                    GoPxLSdk::GoJson(R"({
-                        "parameters" : {
-                            "scanModeSettings" : {
-                                "scanMode" : 2,
-                                "intensityEnabled" : true,
-                                "uniformSpacingEnabled" : true
-                            }
-                        }
-                    })"))
-            .CheckResponse(static_cast<k64u>(timeoutMs));
-    }
-    catch (...) {}
-
-    enableGocatorProtocol(system, timeoutMs);
-
-    try
-    {
-        system.Client()
-            .Call(GOCATOR_REMOVE_ALL_OUTPUT_PATH, GoPxLSdk::GoJson("{}"))
-            .CheckResponse(static_cast<k64u>(timeoutMs));
-    }
-    catch (...) {}
-
-    const std::string payload = R"({"source":")" + profileSourceId + R"(","outputId":0,"autoShift":true})";
-    system.Client()
-        .Call(GOCATOR_ADD_OUTPUT_PATH, GoPxLSdk::GoJson(payload))
-        .CheckResponse(static_cast<k64u>(timeoutMs));
-}
 } // namespace
 
 struct Gocator::Impl
 {
     std::string ipAddress;
-    kAssembly goApiLib = kNULL;
     std::unique_ptr<GoPxLSdk::GoSystem> system;
     std::unique_ptr<GoPxLSdk::GoGdpClient> gdpClient;
     std::atomic<bool> isOpened{false};
     std::atomic<bool> isGrabbing{false};
+    std::atomic<bool> stopRequested{false};
 
     std::string getScannerPath() const
     {
@@ -154,18 +119,33 @@ struct Gocator::Impl
     size_t frameSeq = 0;
     size_t frameTarget = 0;
     std::function<void(const GoPxLSdk::GoDataSet&)> dataCallback;
+    std::mutex stopWorkerMutex;
+    std::thread stopWorker;
 
     ~Impl()
     {
         close();
+        joinStopWorker();
     }
 
     void notifyStatus(Status status, bool on)
     {
-        std::lock_guard<std::mutex> lock(statusMutex);
-        for (const auto& [id, cb] : statusObservers)
+        std::vector<StatusCallback> callbacks;
         {
-            cb(status, on);
+            std::lock_guard<std::mutex> lock(statusMutex);
+            callbacks.reserve(statusObservers.size());
+            for (const auto& [id, cb] : statusObservers)
+            {
+                callbacks.push_back(cb);
+            }
+        }
+
+        for (const auto& cb : callbacks)
+        {
+            if (cb)
+            {
+                cb(status, on);
+            }
         }
     }
 
@@ -173,15 +153,10 @@ struct Gocator::Impl
     {
         if (isOpened.load()) return true;
 
-        const kStatus constructStatus = GoApiLib_Construct(&goApiLib);
-        if (constructStatus != kOK)
-        {
-            goApiLib = kNULL;
-            return false;
-        }
-
         try
         {
+            gocator::GocatorSdkRuntime::ensureInitialized();
+
             GocatorTarget target;
             if (!ip.empty())
             {
@@ -195,7 +170,7 @@ struct Gocator::Impl
             system = std::make_unique<GoPxLSdk::GoSystem>(target.address, target.controlPort);
             system->Connect();
 
-            ipAddress = ip;
+            ipAddress = ip.empty() ? ipAddressToString(target.address) : ip;
             isOpened.store(true);
             notifyStatus(ConnectionStatus, true);
             return true;
@@ -210,6 +185,7 @@ struct Gocator::Impl
 
     void close()
     {
+        joinStopWorker();
         stop();
 
         if (gdpClient)
@@ -222,12 +198,6 @@ struct Gocator::Impl
         {
             try { system->Disconnect(); } catch (...) {}
             system.reset();
-        }
-
-        if (goApiLib != kNULL)
-        {
-            kDestroyRef(&goApiLib);
-            goApiLib = kNULL;
         }
 
         if (isOpened.load())
@@ -308,6 +278,8 @@ struct Gocator::Impl
 
     void grab(size_t frames)
     {
+        joinStopWorker();
+
         if (!isOpened.load() || isGrabbing.load()) return;
 
         try
@@ -317,6 +289,7 @@ struct Gocator::Impl
 
             frameSeq = 0;
             frameTarget = frames;
+            stopRequested.store(false);
             isGrabbing.store(true);
 
             dataCallback = [this](const GoPxLSdk::GoDataSet& dataSet) {
@@ -336,8 +309,11 @@ struct Gocator::Impl
 
     void stop()
     {
+        joinStopWorker();
+
         if (!isGrabbing.load()) return;
 
+        stopRequested.store(true);
         isGrabbing.store(false);
 
         if (system)
@@ -360,18 +336,63 @@ struct Gocator::Impl
         if (!isGrabbing.load()) return;
 
         {
-            std::lock_guard<std::mutex> lock(grabCallbackMutex);
-            for (const auto& [id, cb] : grabCallbacks)
+            std::vector<GrabCallback> callbacks;
             {
-                cb(dataSet, frameSeq);
+                std::lock_guard<std::mutex> lock(grabCallbackMutex);
+                callbacks.reserve(grabCallbacks.size());
+                for (const auto& [id, cb] : grabCallbacks)
+                {
+                    callbacks.push_back(cb);
+                }
+            }
+
+            for (const auto& cb : callbacks)
+            {
+                if (cb)
+                {
+                    cb(dataSet, frameSeq);
+                }
             }
         }
 
         frameSeq++;
         if (frameTarget > 0 && frameSeq >= frameTarget)
         {
-            stop();
+            requestStopFromCallback();
         }
+    }
+
+    void requestStopFromCallback()
+    {
+        if (stopRequested.exchange(true))
+        {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(stopWorkerMutex);
+        if (stopWorker.joinable())
+        {
+            return;
+        }
+
+        stopWorker = std::thread([this]() {
+            stop();
+        });
+    }
+
+    void joinStopWorker()
+    {
+        std::thread worker;
+        {
+            std::lock_guard<std::mutex> lock(stopWorkerMutex);
+            if (!stopWorker.joinable() || stopWorker.get_id() == std::this_thread::get_id())
+            {
+                return;
+            }
+            worker = std::move(stopWorker);
+        }
+
+        worker.join();
     }
 };
 

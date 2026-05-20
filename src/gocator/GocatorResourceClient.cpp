@@ -31,21 +31,4 @@ GoPxLSdk::GoJson GocatorResourceClient::schema(const std::string& path)
     return connection_.system().Resource(path)->Schema();
 }
 
-GoPxLSdk::GoJson GocatorResourceClient::schemaFor(const std::string& path, const std::string& propertyPath)
-{
-    return connection_.system().Resource(path)->SchemaFor(propertyPath);
-}
-
-std::vector<std::string> GocatorResourceClient::childUris(const std::string& path)
-{
-    return connection_.system().Resource(path)->ChildUris();
-}
-
-std::vector<std::string> GocatorResourceClient::childUris(
-    const std::string& path,
-    const std::string& relationType)
-{
-    return connection_.system().Resource(path)->ChildUris(relationType);
-}
-
 } // namespace gocator
