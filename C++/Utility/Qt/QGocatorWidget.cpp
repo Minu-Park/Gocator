@@ -25,6 +25,42 @@
 #include <QSignalBlocker>
 #include <QDebug>
 #include <QtConcurrent>
+#include <cctype>
+
+namespace
+{
+std::string formatDeviceName(const std::string& model, const std::string& serial, const std::string& address, bool isVirtual = false)
+{
+    std::string displayName = model;
+    bool replaced = false;
+    for (const std::string& target : {"Gocator ", "gocator ", "Gocator", "gocator"})
+    {
+        size_t pos = displayName.find(target);
+        if (pos != std::string::npos)
+        {
+            displayName.replace(pos, target.length(), "G");
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced && !displayName.empty() && std::isdigit(static_cast<unsigned char>(displayName[0])))
+    {
+        displayName = "G" + displayName;
+    }
+    
+    std::string serialStr = serial;
+    if (isVirtual)
+    {
+        serialStr = "Virtual";
+    }
+    else if (serialStr.empty() || serialStr == "0")
+    {
+        serialStr = "0";
+    }
+    
+    return displayName + " (" + serialStr + ") - " + address;
+}
+}
 
 QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
     : QWidget(parent)
@@ -184,7 +220,7 @@ QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
 
         for (const auto& device : devices)
         {
-            QString text = QString::fromStdString(device.address + " (" + device.model + " S/N:" + device.serial + ")");
+            QString text = QString::fromStdString(formatDeviceName(device.model, device.serial, device.address));
             _ipCombo->addItem(text, QString::fromStdString(device.address));
         }
 
@@ -367,6 +403,29 @@ void QGocatorWidget::applyConnectionState(bool opened)
         setStatus(QStringLiteral("Connected"));
         setRunningState(false);
         populateFeatures();
+
+        if (_gocator)
+        {
+            Gocator::DeviceInfo devInfo = _gocator->getConnectedDeviceInfo();
+            if (!devInfo.address.empty() && !devInfo.model.empty())
+            {
+                QString ip = QString::fromStdString(devInfo.address);
+                QString text = QString::fromStdString(formatDeviceName(devInfo.model, devInfo.serial, devInfo.address, devInfo.isVirtual));
+
+                int index = _ipCombo->findData(ip);
+                if (index >= 0)
+                {
+                    _ipCombo->setItemText(index, text);
+                    _ipCombo->setCurrentIndex(index);
+                }
+                else
+                {
+                    _ipCombo->addItem(text, ip);
+                    int newIndex = _ipCombo->findData(ip);
+                    if (newIndex >= 0) _ipCombo->setCurrentIndex(newIndex);
+                }
+            }
+        }
     }
     else
     {

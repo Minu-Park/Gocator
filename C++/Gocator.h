@@ -28,6 +28,7 @@ public:
         std::string address;
         std::string model;
         std::string serial;
+        bool isVirtual = false;
     };
 
     enum ScanMode {
@@ -62,6 +63,7 @@ public:
     bool isGrabbing() const;
 
     std::string getConnectedAddress() const;
+    DeviceInfo getConnectedDeviceInfo() const;
 
 private:
     struct Impl;

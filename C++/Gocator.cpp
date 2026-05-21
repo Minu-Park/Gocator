@@ -474,6 +474,43 @@ std::string Gocator::getConnectedAddress() const
     return _impl->ipAddress;
 }
 
+Gocator::DeviceInfo Gocator::getConnectedDeviceInfo() const
+{
+    DeviceInfo info;
+    if (!_impl || !_impl->isOpened.load()) return info;
+    info.address = _impl->ipAddress;
+    
+    try
+    {
+        if (_impl->resources)
+        {
+            GoPxLSdk::GoJson sensorsResponse = _impl->resources->read("/scan/visibleSensors/");
+            GoPxLSdk::GoJson sensors = sensorsResponse.At("/sensors");
+            if (sensors.Size() > 0U)
+            {
+                GoPxLSdk::GoJson sensor = sensors.At("/0");
+                info.model = sensor.At("/model").Get<std::string>();
+                info.serial = sensor.At("/serialNumber").Get<std::string>();
+                
+                if (sensor.HasKey("virtual"))
+                {
+                    info.isVirtual = sensor.At("/virtual").Get<bool>();
+                }
+                else if (sensor.HasKey("deviceType"))
+                {
+                    info.isVirtual = (sensor.At("/deviceType").Get<std::string>() == "Virtual");
+                }
+                else if (info.serial.empty() || info.serial == "0")
+                {
+                    info.isVirtual = true;
+                }
+            }
+        }
+    }
+    catch (...) {}
+    return info;
+}
+
 std::string Gocator::getParametersSchema(const std::string& type) const
 {
     if (!_impl->isOpened.load()) return "{}";
