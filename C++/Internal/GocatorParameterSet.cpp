@@ -1,4 +1,4 @@
-#include "gocator/GocatorParameterSet.h"
+#include "Internal/GocatorParameterSet.h"
 
 namespace gocator
 {

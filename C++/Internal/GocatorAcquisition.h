@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "gocator/GocatorConnection.h"
-#include "gocator/GocatorTypes.h"
+#include "Internal/GocatorConnection.h"
+#include "GocatorTypes.h"
 
 namespace GoPxLSdk
 {

@@ -34,9 +34,9 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
-#include "gocator/GocatorAcquisition.h"
-#include "gocator/GocatorDiscovery.h"
-#include "gocator/GocatorSettingsManager.h"
+#include "Internal/GocatorAcquisition.h"
+#include "Internal/GocatorDiscovery.h"
+#include "Internal/GocatorSettingsManager.h"
 
 namespace
 {

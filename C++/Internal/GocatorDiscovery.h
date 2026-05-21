@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "gocator/GocatorTypes.h"
+#include "GocatorTypes.h"
 
 namespace gocator
 {

@@ -5,10 +5,10 @@
 
 #include <GoPxLSdk/GoJson.h>
 
-#include "gocator/GocatorConnection.h"
-#include "gocator/GocatorParameterSet.h"
-#include "gocator/GocatorResourceClient.h"
-#include "gocator/GocatorTypes.h"
+#include "Internal/GocatorConnection.h"
+#include "Internal/GocatorParameterSet.h"
+#include "Internal/GocatorResourceClient.h"
+#include "GocatorTypes.h"
 
 namespace GoPxLSdk
 {

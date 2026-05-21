@@ -1,4 +1,4 @@
-#include "gocator/GocatorSdkRuntime.h"
+#include "Internal/GocatorSdkRuntime.h"
 
 #include <stdexcept>
 

@@ -1,4 +1,4 @@
-#include "gocator/GocatorSettingsManager.h"
+#include "Internal/GocatorSettingsManager.h"
 
 #include <stdexcept>
 #include <sstream>
@@ -7,7 +7,7 @@
 #include <GoPxLSdk/Def.h>
 #include <GoPxLSdk/GoSystem.h>
 
-#include "gocator/GocatorParameterSet.h"
+#include "Internal/GocatorParameterSet.h"
 
 namespace gocator
 {

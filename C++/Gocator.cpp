@@ -1,23 +1,21 @@
-#include "gocator/Gocator.h"
+#include "Gocator.h"
 
 #include <GoPxLSdk/GoDataSet.h>
-#include <GoPxLSdk/GoDiscoveryClient.h>
 #include <GoPxLSdk/GoGdpClient.h>
-#include <GoPxLSdk/GoInstance.h>
 #include <GoPxLSdk/GoJson.h>
-#include <GoPxLSdk/GoResource.h>
 #include <GoPxLSdk/GoSystem.h>
-#include <kApi/Io/kNetwork.h>
-#include <kApi/kApiDef.h>
 
 #include <atomic>
+#include <iostream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
-#include <iostream>
+#include <vector>
 
-#include "gocator/GocatorDiscovery.h"
-#include "gocator/GocatorSdkRuntime.h"
+#include "Internal/GocatorConnection.h"
+#include "Internal/GocatorDiscovery.h"
+#include "Internal/GocatorResourceClient.h"
 
 namespace
 {
@@ -25,49 +23,31 @@ constexpr const char* GOCATOR_CONTROL_PATH = "/controls/gocator";
 constexpr const char* GOCATOR_ADD_OUTPUT_PATH = "/controls/gocator/outputs/commands/add";
 constexpr const char* GOCATOR_REMOVE_ALL_OUTPUT_PATH = "/controls/gocator/outputs/commands/removeAll";
 
-struct GocatorTarget
+[[nodiscard]] gocator::GocatorConnectionConfig resolveTarget(const std::string& ipAddress)
 {
-    kIpAddress address{};
-    k16u controlPort = GO_PXL_SDK_DEFAULT_CONTROL_PORT;
-};
-
-[[nodiscard]] GocatorTarget parseTarget(const std::string& ipAddress)
-{
-    GocatorTarget target;
-    if (kIpAddress_Parse(&target.address, ipAddress.c_str()) != kOK)
+    if (!ipAddress.empty())
     {
-        throw std::runtime_error("invalid Gocator IP address: " + ipAddress);
+        return gocator::GocatorDiscovery::manualTarget(ipAddress);
     }
-    return target;
-}
 
-[[nodiscard]] std::string ipAddressToString(const kIpAddress& address)
-{
-    kChar text[64] = {};
-    kIpAddress_Format(address, text, sizeof(text));
-    return text;
-}
-
-[[nodiscard]] GocatorTarget discoverTarget(int timeoutMs)
-{
-    GoPxLSdk::GoDiscoveryClient discovery;
-    discovery.BlockingDiscover(static_cast<k64u>(timeoutMs), false);
-    const std::vector<GoPxLSdk::GoInstance>& instances = discovery.InstanceList();
-    for (const GoPxLSdk::GoInstance& instance : instances)
+    const gocator::GocatorDiscovery discovery;
+    const std::vector<gocator::GocatorDeviceInfo> devices = discovery.discover({3000, false});
+    for (const gocator::GocatorDeviceInfo& device : devices)
     {
-        if (!instance.GetIsRemote())
+        if (device.canConnectLocally())
         {
-            return {instance.GetIpAddress(), instance.GetControlPort()};
+            return device.connectionConfig();
         }
     }
+
     throw std::runtime_error("no local Gocator/GoPxL instance discovered");
 }
 
-[[nodiscard]] std::string detectEngineId(GoPxLSdk::GoSystem& system)
+[[nodiscard]] std::string detectEngineId(gocator::GocatorResourceClient& resources)
 {
     try
     {
-        GoPxLSdk::GoJson sensorsResponse = system.Client().Read("/scan/visibleSensors/").GetResponse().Payload();
+        GoPxLSdk::GoJson sensorsResponse = resources.read("/scan/visibleSensors/");
         GoPxLSdk::GoJson sensors = sensorsResponse.At("/sensors");
         if (sensors.Size() > 0U)
         {
@@ -78,11 +58,18 @@ struct GocatorTarget
     return "LMIConfocalLineProfiler";
 }
 
-void enableGocatorProtocol(GoPxLSdk::GoSystem& system, int timeoutMs)
+[[nodiscard]] std::string profileSourceForEngine(const std::string& engineId, Gocator::ScanMode mode)
 {
-    system.Client()
-        .Update(GOCATOR_CONTROL_PATH, GoPxLSdk::GoJson(R"({"enabled": true})"))
-        .CheckResponse(static_cast<k64u>(timeoutMs));
+    if (mode == Gocator::ScanMode::SurfaceMode)
+    {
+        return (engineId == "LMIConfocalLineProfiler")
+            ? "scan:" + engineId + ":scanner-0:topUniformSurfaceLayer0"
+            : "scan:" + engineId + ":scanner-0:topUniformSurface";
+    }
+
+    return (engineId == "LMIConfocalLineProfiler")
+        ? "scan:" + engineId + ":scanner-0:topUniformProfileLayer0"
+        : "scan:" + engineId + ":scanner-0:topUniformProfile";
 }
 
 } // namespace
@@ -90,7 +77,8 @@ void enableGocatorProtocol(GoPxLSdk::GoSystem& system, int timeoutMs)
 struct Gocator::Impl
 {
     std::string ipAddress;
-    std::unique_ptr<GoPxLSdk::GoSystem> system;
+    std::unique_ptr<gocator::GocatorConnection> connection;
+    std::unique_ptr<gocator::GocatorResourceClient> resources;
     std::unique_ptr<GoPxLSdk::GoGdpClient> gdpClient;
     std::atomic<bool> isOpened{false};
     std::atomic<bool> isGrabbing{false};
@@ -98,8 +86,8 @@ struct Gocator::Impl
 
     std::string getScannerPath() const
     {
-        if (!system) return "";
-        const std::string engineId = detectEngineId(*system);
+        if (!resources) return "";
+        const std::string engineId = detectEngineId(*resources);
         return "/scan/engines/" + engineId + "/scanners/scanner-0";
     }
 
@@ -121,6 +109,7 @@ struct Gocator::Impl
     std::function<void(const GoPxLSdk::GoDataSet&)> dataCallback;
     std::mutex stopWorkerMutex;
     std::thread stopWorker;
+    std::mutex stopMutex;
 
     ~Impl()
     {
@@ -155,22 +144,12 @@ struct Gocator::Impl
 
         try
         {
-            gocator::GocatorSdkRuntime::ensureInitialized();
+            auto target = resolveTarget(ip);
+            connection = std::make_unique<gocator::GocatorConnection>(target);
+            resources = std::make_unique<gocator::GocatorResourceClient>(*connection);
+            connection->connect();
 
-            GocatorTarget target;
-            if (!ip.empty())
-            {
-                target = parseTarget(ip);
-            }
-            else
-            {
-                target = discoverTarget(3000); // 3 seconds timeout
-            }
-
-            system = std::make_unique<GoPxLSdk::GoSystem>(target.address, target.controlPort);
-            system->Connect();
-
-            ipAddress = ip.empty() ? ipAddressToString(target.address) : ip;
+            ipAddress = connection->config().address;
             isOpened.store(true);
             notifyStatus(ConnectionStatus, true);
             return true;
@@ -194,10 +173,11 @@ struct Gocator::Impl
             gdpClient.reset();
         }
 
-        if (system)
+        resources.reset();
+        if (connection)
         {
-            try { system->Disconnect(); } catch (...) {}
-            system.reset();
+            connection->disconnect();
+            connection.reset();
         }
 
         if (isOpened.load())
@@ -213,15 +193,14 @@ struct Gocator::Impl
 
         try
         {
-            const std::string engineId = detectEngineId(*system);
+            const std::string engineId = detectEngineId(*resources);
             const std::string scannerPath = "/scan/engines/" + engineId + "/scanners/scanner-0";
             const std::string sensorPath = scannerPath + "/sensors/sensor-0";
 
-            // 1. Scan Mode, Intensity, Uniform Spacing 적용
-            int sdkScanMode = 2; // Default Profile
+            int sdkScanMode = 2;
             if (mode == ScanMode::SurfaceMode)
             {
-                sdkScanMode = 3; // Surface
+                sdkScanMode = 3;
             }
 
             std::string payload = R"({"parameters":{"scanModeSettings":{)"
@@ -229,46 +208,28 @@ struct Gocator::Impl
                                   R"("intensityEnabled":)" + (intensityEnabled ? "true" : "false") + R"(,)"
                                   R"("uniformSpacingEnabled":)" + (uniformSpacingEnabled ? "true" : "false") +
                                   R"(}}})";
-            system->Client().Update(scannerPath, GoPxLSdk::GoJson(payload)).CheckResponse(30000);
+            resources->update(scannerPath, GoPxLSdk::GoJson(payload));
 
-            // 2. Exposure 적용
             std::string exposurePayload = R"({"parameters":{"exposureSettings":{)"
                                           R"("exposureMode":0,)"
                                           R"("singleExposure":)" + std::to_string(exposureUs) +
                                           R"(}}})";
-            system->Client().Update(sensorPath, GoPxLSdk::GoJson(exposurePayload)).CheckResponse(30000);
+            resources->update(sensorPath, GoPxLSdk::GoJson(exposurePayload));
 
-            // 3. Scan Length 적용
             std::string scanLengthPayload = R"({"parameters":{"scanModeSettings":{"scanLengthMm":)" + std::to_string(scanLengthMm) + R"(}}})";
-            system->Client().Update(scannerPath, GoPxLSdk::GoJson(scanLengthPayload)).CheckResponse(30000);
+            resources->update(scannerPath, GoPxLSdk::GoJson(scanLengthPayload));
 
-            // 4. Gocator protocol 활성화 및 Output 구성
-            enableGocatorProtocol(*system, 30000);
+            resources->update(GOCATOR_CONTROL_PATH, GoPxLSdk::GoJson(R"({"enabled": true})"));
 
-            // Remove outputs
             try
             {
-                system->Client().Call(GOCATOR_REMOVE_ALL_OUTPUT_PATH, GoPxLSdk::GoJson("{}")).CheckResponse(30000);
+                resources->call(GOCATOR_REMOVE_ALL_OUTPUT_PATH, GoPxLSdk::GoJson("{}"));
             }
             catch (...) {}
 
-            // Add output
-            std::string sourceId;
-            if (mode == ScanMode::SurfaceMode)
-            {
-                sourceId = (engineId == "LMIConfocalLineProfiler")
-                    ? "scan:" + engineId + ":scanner-0:topUniformSurfaceLayer0"
-                    : "scan:" + engineId + ":scanner-0:topUniformSurface";
-            }
-            else
-            {
-                sourceId = (engineId == "LMIConfocalLineProfiler")
-                    ? "scan:" + engineId + ":scanner-0:topUniformProfileLayer0"
-                    : "scan:" + engineId + ":scanner-0:topUniformProfile";
-            }
-
+            const std::string sourceId = profileSourceForEngine(engineId, mode);
             std::string addOutputPayload = R"({"source":")" + sourceId + R"(","outputId":0,"autoShift":true})";
-            system->Client().Call(GOCATOR_ADD_OUTPUT_PATH, GoPxLSdk::GoJson(addOutputPayload)).CheckResponse(30000);
+            resources->call(GOCATOR_ADD_OUTPUT_PATH, GoPxLSdk::GoJson(addOutputPayload));
         }
         catch (const std::exception& e)
         {
@@ -285,7 +246,7 @@ struct Gocator::Impl
         try
         {
             gdpClient = std::make_unique<GoPxLSdk::GoGdpClient>();
-            gdpClient->Connect(system->Address(), system->GdpPort());
+            gdpClient->Connect(connection->system().Address(), connection->gdpPort());
 
             frameSeq = 0;
             frameTarget = frames;
@@ -297,7 +258,7 @@ struct Gocator::Impl
             };
             gdpClient->ReceiveDataAsync(dataCallback);
 
-            system->Start();
+            connection->start();
             notifyStatus(GrabbingStatus, true);
         }
         catch (const std::exception& e)
@@ -309,16 +270,14 @@ struct Gocator::Impl
 
     void stop()
     {
-        joinStopWorker();
-
-        if (!isGrabbing.load()) return;
+        std::lock_guard<std::mutex> lock(stopMutex);
+        if (!isGrabbing.exchange(false)) return;
 
         stopRequested.store(true);
-        isGrabbing.store(false);
 
-        if (system)
+        if (connection)
         {
-            try { system->Stop(); } catch (...) {}
+            connection->stopNoThrow();
         }
 
         if (gdpClient)
@@ -521,7 +480,7 @@ std::string Gocator::getParametersSchema(const std::string& type) const
     try
     {
         std::string path = (type == "scanner") ? _impl->getScannerPath() : _impl->getSensorPath();
-        return _impl->system->Resource(path)->Schema().ToString();
+        return _impl->resources->schema(path).ToString();
     }
     catch (const std::exception& e)
     {
@@ -536,7 +495,7 @@ std::string Gocator::getParametersData(const std::string& type) const
     try
     {
         std::string path = (type == "scanner") ? _impl->getScannerPath() : _impl->getSensorPath();
-        return _impl->system->Resource(path)->Data().ToString();
+        return _impl->resources->data(path).ToString();
     }
     catch (const std::exception& e)
     {
@@ -551,10 +510,9 @@ void Gocator::setParameterValue(const std::string& type, const std::string& path
     try
     {
         std::string resPath = (type == "scanner") ? _impl->getScannerPath() : _impl->getSensorPath();
-        auto resource = _impl->system->Resource(resPath);
         GoPxLSdk::GoJson patch;
         patch.Set(path, GoPxLSdk::GoJson(jsonValue));
-        resource->SetJson(patch);
+        _impl->resources->setJson(resPath, patch);
     }
     catch (const std::exception& e)
     {

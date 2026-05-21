@@ -4,7 +4,7 @@
 
 #include <GoPxLSdk/GoJson.h>
 
-#include "gocator/GocatorConnection.h"
+#include "Internal/GocatorConnection.h"
 
 namespace gocator
 {
@@ -19,6 +19,8 @@ public:
     void call(const std::string& path, const GoPxLSdk::GoJson& payload);
 
     GoPxLSdk::GoJson schema(const std::string& path);
+    GoPxLSdk::GoJson data(const std::string& path);
+    void setJson(const std::string& path, const GoPxLSdk::GoJson& patch);
 
 private:
     GocatorConnection& connection_;

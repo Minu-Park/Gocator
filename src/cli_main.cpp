@@ -4,10 +4,10 @@
 #include <sstream>
 #include <string>
 
-#include "gocator/GocatorAcquisition.h"
-#include "gocator/GocatorDiscovery.h"
-#include "gocator/GocatorSettingsManager.h"
-#include "gocator/GocatorParameterSet.h"
+#include "Internal/GocatorAcquisition.h"
+#include "Internal/GocatorDiscovery.h"
+#include "Internal/GocatorSettingsManager.h"
+#include "Internal/GocatorParameterSet.h"
 
 namespace
 {

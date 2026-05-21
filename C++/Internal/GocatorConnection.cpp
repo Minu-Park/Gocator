@@ -1,4 +1,4 @@
-#include "gocator/GocatorConnection.h"
+#include "Internal/GocatorConnection.h"
 
 #include <stdexcept>
 #include <utility>
@@ -6,7 +6,7 @@
 #include <GoPxLSdk/GoSystem.h>
 #include <kApi/Io/kNetwork.h>
 
-#include "gocator/GocatorSdkRuntime.h"
+#include "Internal/GocatorSdkRuntime.h"
 
 namespace gocator
 {

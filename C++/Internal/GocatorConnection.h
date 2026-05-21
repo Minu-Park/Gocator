@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "gocator/GocatorTypes.h"
+#include "GocatorTypes.h"
 
 namespace GoPxLSdk
 {

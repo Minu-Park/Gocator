@@ -16,19 +16,19 @@ if(GOCATOR_BUILD_QT_UI AND NOT CMAKE_PREFIX_PATH AND EXISTS "${GOCATOR_DEFAULT_Q
 endif()
 
 add_library(gocator_core
-    src/gocator/GocatorAcquisition.cpp
-    src/gocator/GocatorConnection.cpp
-    src/gocator/GocatorDiscovery.cpp
-    src/gocator/GocatorParameterSet.cpp
-    src/gocator/GocatorResourceClient.cpp
-    src/gocator/GocatorSdkRuntime.cpp
-    src/gocator/GocatorSettingsManager.cpp
-    src/gocator/Gocator.cpp
+    C++/Gocator.cpp
+    C++/Internal/GocatorAcquisition.cpp
+    C++/Internal/GocatorConnection.cpp
+    C++/Internal/GocatorDiscovery.cpp
+    C++/Internal/GocatorParameterSet.cpp
+    C++/Internal/GocatorResourceClient.cpp
+    C++/Internal/GocatorSdkRuntime.cpp
+    C++/Internal/GocatorSettingsManager.cpp
 )
 
 target_include_directories(gocator_core
     PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/C++"
         "${GOPXL_SDK_DIR}/include/kApi"
         "${GOPXL_SDK_DIR}/include/GoApi"
         "${GOPXL_SDK_DIR}/include/GoPxLSdk"
@@ -52,14 +52,14 @@ add_executable(gocator
 )
 
 if(GOCATOR_BUILD_QT_UI)
-    find_package(Qt6 QUIET COMPONENTS Widgets)
+    find_package(Qt6 QUIET COMPONENTS Widgets Concurrent)
     if(Qt6_FOUND)
         set_target_properties(gocator_core PROPERTIES AUTOMOC ON)
         target_sources(gocator_core PRIVATE
-            src/gocator/QGocatorWidget.cpp
-            src/gocator/QGocatorWidget.h
+            C++/Utility/Qt/QGocatorWidget.cpp
+            C++/Utility/Qt/QGocatorWidget.h
         )
-        target_link_libraries(gocator_core PUBLIC Qt6::Widgets)
+        target_link_libraries(gocator_core PUBLIC Qt6::Widgets Qt6::Concurrent)
         target_compile_definitions(gocator_core PUBLIC GOCATOR_HAS_UI)
 
         target_sources(gocator PRIVATE src/ui_main.cpp)

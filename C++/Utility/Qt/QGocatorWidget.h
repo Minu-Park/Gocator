@@ -6,7 +6,8 @@
 #include <QMap>
 #include <QWidget>
 #include <QString>
-#include "gocator/Gocator.h"
+#include <QFutureWatcher>
+#include "Gocator.h"
 
 class QComboBox;
 class QDoubleSpinBox;
@@ -61,6 +62,7 @@ private:
     void populateFeatures();
     void clearFeatures();
     void addFeatureNode(class QTreeWidgetItem* parentItem, const QString& type, const QString& basePath, const QString& name, const class QJsonObject& propSchema, const class QJsonObject& valuesObj);
+    void updateFeatureValues();
 
     Gocator *_gocator = nullptr;
     Gocator::CallbackId _statusCallbackId = 0;
@@ -78,6 +80,11 @@ private:
 
     QLabel *_statusLabel = nullptr;
     QStatusBar *_statusBar = nullptr;
+
+    QFutureWatcher<bool> _connectWatcher;
+    QFutureWatcher<std::vector<Gocator::DeviceInfo>> _discoverWatcher;
+    QFutureWatcher<void> _paramWatcher;
+    bool _updatingFeatures = false;
 };
 #endif
 

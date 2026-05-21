@@ -6,7 +6,7 @@
 - Entry Point: `src/main.cpp` (CLI/UI branch)
 - Diagnostics: Update `runDebug` in `src/cli_main.cpp`
 - Data: Normalize 16-bit images for UI preview
-- Architecture: `gocator_core` (no Qt) vs `src/ui_main.cpp` (Qt)
+- Architecture: public facade in `C++/`, SDK helpers in `C++/Internal/`, Qt widget in `C++/Utility/Qt/`
 
 ## 주요 마일스톤
 

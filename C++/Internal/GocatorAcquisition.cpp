@@ -1,4 +1,4 @@
-#include "gocator/GocatorAcquisition.h"
+#include "Internal/GocatorAcquisition.h"
 
 #include <algorithm>
 #include <cstring>
@@ -336,18 +336,32 @@ GocatorProfileFrame GocatorAcquisition::uniformProfileFrame(const GoPxLSdk::GoGd
 
     const kArray1 ranges = profile.Ranges();
     const kArray1 intensities = profile.Intensities();
+
+    if (frame.width > 0 && ranges != kNULL)
+    {
+        k16s firstRange = k16S_NULL;
+        kArray1_Item(ranges, 0, &firstRange);
+        frame.firstRange = firstRange;
+        frame.minRange = firstRange;
+        frame.maxRange = firstRange;
+        frame.hasRangeStats = true;
+    }
+
+    if (frame.intensityWidth > 0 && intensities != kNULL)
+    {
+        k16u firstIntensity = 0;
+        kArray1_Item(intensities, 0, &firstIntensity);
+        frame.minIntensity = firstIntensity;
+        frame.maxIntensity = firstIntensity;
+        frame.hasIntensityStats = true;
+    }
+
     for (std::uint32_t i = 0; i < frame.width; ++i)
     {
         k16s range = k16S_NULL;
         kArray1_Item(ranges, i, &range);
-        if (i == 0)
-        {
-            frame.firstRange = range;
-            frame.minRange = range;
-            frame.maxRange = range;
-            frame.hasRangeStats = true;
-        }
-        else
+        
+        if (frame.hasRangeStats)
         {
             frame.minRange = std::min(frame.minRange, static_cast<std::int32_t>(range));
             frame.maxRange = std::max(frame.maxRange, static_cast<std::int32_t>(range));
@@ -371,13 +385,7 @@ GocatorProfileFrame GocatorAcquisition::uniformProfileFrame(const GoPxLSdk::GoGd
             k16u intensity = 0;
             kArray1_Item(intensities, i, &intensity);
             point.intensity = intensity;
-            if (!frame.hasIntensityStats)
-            {
-                frame.minIntensity = intensity;
-                frame.maxIntensity = intensity;
-                frame.hasIntensityStats = true;
-            }
-            else
+            if (frame.hasIntensityStats)
             {
                 frame.minIntensity = std::min(frame.minIntensity, static_cast<std::uint16_t>(intensity));
                 frame.maxIntensity = std::max(frame.maxIntensity, static_cast<std::uint16_t>(intensity));
@@ -406,18 +414,32 @@ GocatorProfileFrame GocatorAcquisition::pointCloudProfileFrame(const GoPxLSdk::G
 
     const kArray1 ranges = profile.Ranges();
     const kArray1 intensities = profile.Intensities();
+
+    if (frame.width > 0 && ranges != kNULL)
+    {
+        kPoint16s firstSource = {k16S_NULL, k16S_NULL};
+        kArray1_Item(ranges, 0, &firstSource);
+        frame.firstRange = firstSource.y;
+        frame.minRange = firstSource.y;
+        frame.maxRange = firstSource.y;
+        frame.hasRangeStats = true;
+    }
+
+    if (frame.intensityWidth > 0 && intensities != kNULL)
+    {
+        k16u firstIntensity = 0;
+        kArray1_Item(intensities, 0, &firstIntensity);
+        frame.minIntensity = firstIntensity;
+        frame.maxIntensity = firstIntensity;
+        frame.hasIntensityStats = true;
+    }
+
     for (std::uint32_t i = 0; i < frame.width; ++i)
     {
         kPoint16s source = {k16S_NULL, k16S_NULL};
         kArray1_Item(ranges, i, &source);
-        if (i == 0)
-        {
-            frame.firstRange = source.y;
-            frame.minRange = source.y;
-            frame.maxRange = source.y;
-            frame.hasRangeStats = true;
-        }
-        else
+        
+        if (frame.hasRangeStats)
         {
             frame.minRange = std::min(frame.minRange, static_cast<std::int32_t>(source.y));
             frame.maxRange = std::max(frame.maxRange, static_cast<std::int32_t>(source.y));
@@ -441,13 +463,7 @@ GocatorProfileFrame GocatorAcquisition::pointCloudProfileFrame(const GoPxLSdk::G
             k16u intensity = 0;
             kArray1_Item(intensities, i, &intensity);
             point.intensity = intensity;
-            if (!frame.hasIntensityStats)
-            {
-                frame.minIntensity = intensity;
-                frame.maxIntensity = intensity;
-                frame.hasIntensityStats = true;
-            }
-            else
+            if (frame.hasIntensityStats)
             {
                 frame.minIntensity = std::min(frame.minIntensity, static_cast<std::uint16_t>(intensity));
                 frame.maxIntensity = std::max(frame.maxIntensity, static_cast<std::uint16_t>(intensity));

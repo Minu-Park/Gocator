@@ -24,6 +24,7 @@
 #include <QJsonValue>
 #include <QSignalBlocker>
 #include <QDebug>
+#include <QtConcurrent>
 
 QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
     : QWidget(parent)
@@ -140,6 +141,70 @@ QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
     connect(_toolGrabOne, &QToolButton::clicked, this, &QGocatorWidget::onGrabOneClicked);
     connect(_toolGrabLive, &QToolButton::toggled, this, &QGocatorWidget::onGrabLiveToggled);
 
+    // Async Watchers
+    connect(&_connectWatcher, &QFutureWatcher<bool>::finished, this, [this]() {
+        if (_shuttingDown) return;
+        bool success = _connectWatcher.result();
+        setConnectionOperationActive(false);
+        if (success)
+        {
+            applyConnectionState(true);
+        }
+        else
+        {
+            setStatus(QStringLiteral("Connection Failed"));
+            QSignalBlocker blocker(_toolConnect);
+            _toolConnect->setChecked(false);
+            applyConnectionState(false);
+        }
+    });
+
+    connect(&_discoverWatcher, &QFutureWatcher<std::vector<Gocator::DeviceInfo>>::finished, this, [this]() {
+        if (_shuttingDown) return;
+        std::vector<Gocator::DeviceInfo> devices = _discoverWatcher.result();
+        
+        QString currentAddress = ipAddress();
+        _ipCombo->clear();
+
+        if (devices.empty())
+        {
+            setStatus(QStringLiteral("No devices found"));
+            if (!currentAddress.isEmpty())
+            {
+                _ipCombo->setEditText(currentAddress);
+            }
+            else
+            {
+                _ipCombo->setEditText(QStringLiteral("192.168.1.10"));
+            }
+            _toolRefresh->setEnabled(true);
+            _toolConnect->setEnabled(true);
+            return;
+        }
+
+        for (const auto& device : devices)
+        {
+            QString text = QString::fromStdString(device.address + " (" + device.model + " S/N:" + device.serial + ")");
+            _ipCombo->addItem(text, QString::fromStdString(device.address));
+        }
+
+        if (!currentAddress.isEmpty())
+        {
+            int index = _ipCombo->findData(currentAddress);
+            if (index >= 0) _ipCombo->setCurrentIndex(index);
+            else _ipCombo->setEditText(currentAddress);
+        }
+
+        setStatus(QStringLiteral("Discovered %1 devices").arg(devices.size()));
+        _toolRefresh->setEnabled(true);
+        _toolConnect->setEnabled(true);
+    });
+
+    connect(&_paramWatcher, &QFutureWatcher<void>::finished, this, [this]() {
+        if (_shuttingDown) return;
+        updateFeatureValues();
+    });
+
     if (_gocator)
     {
         _statusCallbackId = _gocator->registerStatusCallback([guard = QPointer<QGocatorWidget>(this)](Gocator::Status status, bool on) {
@@ -173,6 +238,13 @@ QGocatorWidget::~QGocatorWidget()
 void QGocatorWidget::prepareForShutdown()
 {
     _shuttingDown = true;
+    _connectWatcher.cancel();
+    _connectWatcher.waitForFinished();
+    _discoverWatcher.cancel();
+    _discoverWatcher.waitForFinished();
+    _paramWatcher.cancel();
+    _paramWatcher.waitForFinished();
+
     if (_gocator && _statusCallbackId != 0)
     {
         _gocator->deregisterStatusCallback(_statusCallbackId);
@@ -185,44 +257,15 @@ void QGocatorWidget::onRefreshClicked()
 {
     if (!_gocator || _shuttingDown) return;
 
-    QString currentAddress = ipAddress();
+    _toolRefresh->setEnabled(false);
+    _toolConnect->setEnabled(false);
     setStatus(QStringLiteral("Discovering"));
-    QCoreApplication::processEvents();
 
-    std::vector<Gocator::DeviceInfo> devices = _gocator->discoverDevices();
-    
-    _ipCombo->clear();
-
-    if (devices.empty())
-    {
-        setStatus(QStringLiteral("No devices found"));
-        // Restore previous address or default to Gocator standard IP
-        if (!currentAddress.isEmpty())
-        {
-            _ipCombo->setEditText(currentAddress);
-        }
-        else
-        {
-            _ipCombo->setEditText(QStringLiteral("192.168.1.10"));
-        }
-        return;
-    }
-
-    for (const auto& device : devices)
-    {
-        QString text = QString::fromStdString(device.address + " (" + device.model + " S/N:" + device.serial + ")");
-        _ipCombo->addItem(text, QString::fromStdString(device.address));
-    }
-
-    // Try to restore selection
-    if (!currentAddress.isEmpty())
-    {
-        int index = _ipCombo->findData(currentAddress);
-        if (index >= 0) _ipCombo->setCurrentIndex(index);
-        else _ipCombo->setEditText(currentAddress);
-    }
-
-    setStatus(QStringLiteral("Discovered %1 devices").arg(devices.size()));
+    auto future = QtConcurrent::run([this]() {
+        if (!_gocator) return std::vector<Gocator::DeviceInfo>();
+        return _gocator->discoverDevices();
+    });
+    _discoverWatcher.setFuture(future);
 }
 
 void QGocatorWidget::onConnectToggled(bool toggled)
@@ -233,25 +276,21 @@ void QGocatorWidget::onConnectToggled(bool toggled)
     if (toggled)
     {
         setStatus(QStringLiteral("Connecting"));
-        QCoreApplication::processEvents();
-        if (_gocator->open(ipAddress().toStdString()))
-        {
-            applyConnectionState(true);
-        }
-        else
-        {
-            setStatus(QStringLiteral("Connection Failed"));
-            QSignalBlocker blocker(_toolConnect);
-            _toolConnect->setChecked(false);
-            applyConnectionState(false);
-        }
+        std::string ip = ipAddress().toStdString();
+        auto future = QtConcurrent::run([this, ip]() {
+            if (!_gocator) return false;
+            return _gocator->open(ip);
+        });
+        _connectWatcher.setFuture(future);
     }
     else
     {
-        _gocator->close();
-        applyConnectionState(false);
+        auto future = QtConcurrent::run([this]() {
+            if (_gocator) _gocator->close();
+            return false;
+        });
+        _connectWatcher.setFuture(future);
     }
-    setConnectionOperationActive(false);
 }
 
 void QGocatorWidget::onGrabOneClicked()
@@ -535,6 +574,7 @@ void QGocatorWidget::populateFeatures()
 {
     if (!_gocator || _shuttingDown || !_gocator->isOpened()) return;
 
+    _updatingFeatures = true;
     clearFeatures();
 
     QString scannerSchemaStr = QString::fromStdString(_gocator->getParametersSchema("scanner"));
@@ -588,6 +628,7 @@ void QGocatorWidget::populateFeatures()
     }
 
     rootItem->setExpanded(true);
+    _updatingFeatures = false;
 }
 
 void QGocatorWidget::addFeatureNode(QTreeWidgetItem* parentItem, const QString& type, const QString& basePath, const QString& name, const QJsonObject& propSchema, const QJsonObject& valuesObj)
@@ -739,6 +780,8 @@ void QGocatorWidget::addFeatureNode(QTreeWidgetItem* parentItem, const QString& 
 
 void QGocatorWidget::onParameterChanged()
 {
+    if (_updatingFeatures) return;
+
     QWidget* senderWidget = qobject_cast<QWidget*>(sender());
     if (!senderWidget || !_gocator || _shuttingDown) return;
 
@@ -781,7 +824,124 @@ void QGocatorWidget::onParameterChanged()
             jsonValueStr = "\"" + jsonVal.toString() + "\"";
         }
 
-        _gocator->setParameterValue(mapping.type.toStdString(), mapping.path.toStdString(), jsonValueStr.toStdString());
+        std::string type = mapping.type.toStdString();
+        std::string path = mapping.path.toStdString();
+        std::string valStr = jsonValueStr.toStdString();
+
+        auto future = QtConcurrent::run([this, type, path, valStr]() {
+            if (_gocator)
+            {
+                _gocator->setParameterValue(type, path, valStr);
+            }
+        });
+        _paramWatcher.setFuture(future);
     }
+}
+
+void QGocatorWidget::updateFeatureValues()
+{
+    if (!_gocator || _shuttingDown || !_gocator->isOpened()) return;
+
+    struct DataResult {
+        QString scannerData;
+        QString sensorData;
+    };
+
+    auto future = QtConcurrent::run([this]() -> DataResult {
+        if (!_gocator) return {};
+        return {
+            QString::fromStdString(_gocator->getParametersData("scanner")),
+            QString::fromStdString(_gocator->getParametersData("sensor"))
+        };
+    });
+
+    auto* watcher = new QFutureWatcher<DataResult>(this);
+    connect(watcher, &QFutureWatcher<DataResult>::finished, this, [this, watcher]() {
+        watcher->deleteLater();
+        if (_shuttingDown || !_gocator) return;
+        
+        DataResult res = watcher->result();
+        
+        QJsonObject scannerData = QJsonDocument::fromJson(res.scannerData.toUtf8()).object();
+        QJsonObject sensorData = QJsonDocument::fromJson(res.sensorData.toUtf8()).object();
+
+        QJsonObject scannerParams = scannerData.value(QStringLiteral("parameters")).toObject();
+        QJsonObject sensorParams = sensorData.value(QStringLiteral("parameters")).toObject();
+
+        _updatingFeatures = true;
+
+        for (auto it = _widgetToFeatureMap.begin(); it != _widgetToFeatureMap.end(); ++it)
+        {
+            QWidget* widget = it.key();
+            const FeatureMapping& mapping = it.value();
+
+            if (!widget) continue;
+
+            QString relativePath = mapping.path;
+            if (relativePath.startsWith(QStringLiteral("/parameters")))
+            {
+                relativePath = relativePath.mid(11);
+            }
+            if (relativePath.startsWith(QStringLiteral("/")))
+            {
+                relativePath = relativePath.mid(1);
+            }
+
+            QStringList segments = relativePath.split(QStringLiteral("/"));
+            QJsonObject currentObj = (mapping.type == QStringLiteral("scanner")) ? scannerParams : sensorParams;
+            QJsonValue targetVal;
+
+            for (int i = 0; i < segments.size(); ++i)
+            {
+                if (i == segments.size() - 1)
+                {
+                    targetVal = currentObj.value(segments[i]);
+                }
+                else
+                {
+                    currentObj = currentObj.value(segments[i]).toObject();
+                }
+            }
+
+            if (targetVal.isUndefined() || targetVal.isNull())
+            {
+                continue;
+            }
+
+            QSignalBlocker blocker(widget);
+
+            if (auto* check = qobject_cast<QCheckBox*>(widget))
+            {
+                check->setChecked(targetVal.toBool());
+            }
+            else if (auto* spin = qobject_cast<QSpinBox*>(widget))
+            {
+                spin->setValue(targetVal.toInt());
+            }
+            else if (auto* dspin = qobject_cast<QDoubleSpinBox*>(widget))
+            {
+                dspin->setValue(targetVal.toDouble());
+            }
+            else if (auto* combo = qobject_cast<QComboBox*>(widget))
+            {
+                int index = -1;
+                if (targetVal.isDouble())
+                {
+                    index = combo->findData(targetVal.toDouble());
+                }
+                else
+                {
+                    index = combo->findData(targetVal.toString());
+                }
+                if (index >= 0)
+                {
+                    combo->setCurrentIndex(index);
+                }
+            }
+        }
+
+        _updatingFeatures = false;
+    });
+    watcher->setFuture(future);
 }
 #endif

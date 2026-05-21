@@ -1,4 +1,4 @@
-#include "gocator/GocatorResourceClient.h"
+#include "Internal/GocatorResourceClient.h"
 
 #include <GoPxLSdk/GoResource.h>
 #include <GoPxLSdk/GoSystem.h>
@@ -29,6 +29,16 @@ void GocatorResourceClient::call(const std::string& path, const GoPxLSdk::GoJson
 GoPxLSdk::GoJson GocatorResourceClient::schema(const std::string& path)
 {
     return connection_.system().Resource(path)->Schema();
+}
+
+GoPxLSdk::GoJson GocatorResourceClient::data(const std::string& path)
+{
+    return connection_.system().Resource(path)->Data();
+}
+
+void GocatorResourceClient::setJson(const std::string& path, const GoPxLSdk::GoJson& patch)
+{
+    connection_.system().Resource(path)->SetJson(patch);
 }
 
 } // namespace gocator
