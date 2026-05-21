@@ -606,7 +606,7 @@ void QGocatorWidget::populateFeatures()
         {
             addFeatureNode(scannerCategory, QStringLiteral("scanner"), QStringLiteral("/parameters"), it.key(), it.value().toObject(), parametersValues);
         }
-        scannerCategory->setExpanded(true);
+        scannerCategory->setExpanded(false);
     }
 
     // sensor 리소스 전개
@@ -663,7 +663,7 @@ void QGocatorWidget::addFeatureNode(QTreeWidgetItem* parentItem, const QString& 
         {
             addFeatureNode(groupItem, type, path, it.key(), it.value().toObject(), subValues);
         }
-        groupItem->setExpanded(true);
+        groupItem->setExpanded(false);
     }
     else
     {
