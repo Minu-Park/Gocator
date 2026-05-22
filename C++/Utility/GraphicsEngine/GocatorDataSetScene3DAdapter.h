@@ -5,7 +5,7 @@
  * @brief LMI Gocator GDP dataset adapter for neutral GraphicsEngine scene data.
  */
 
-#include "engine/adapters/Scene3DAdapter.h"
+#include "engine/Scene3DAdapter.h"
 #include "engine/GraphicsSceneTypes.h"
 
 #include <optional>
