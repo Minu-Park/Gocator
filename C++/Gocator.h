@@ -80,6 +80,8 @@ public:
     std::string getConnectedAddress() const;
     DeviceInfo getConnectedDeviceInfo() const;
 
+    static void syslog(const std::string& message, bool warning = false);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> _impl;

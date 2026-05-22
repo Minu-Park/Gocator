@@ -13,6 +13,8 @@
 #include <QScrollBar>
 #include <QLabel>
 #include <QStatusBar>
+#include <QTimer>
+#include <QStyle>
 #include <QPointer>
 #include <QMetaObject>
 #include <QIcon>
@@ -174,9 +176,22 @@ QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
     _statusBar->setObjectName(QStringLiteral("GocatorStatusBar"));
     _statusBar->setContentsMargins(0, 0, 0, 0);
 
-    _statusLabel = new QLabel(QStringLiteral("Disconnected"), _statusBar);
-    _statusLabel->setStyleSheet(QStringLiteral("color: #a12622; font-weight: 600;"));
+    _statusLabel = new QLabel(this);
+    _statusLabel->setObjectName(QStringLiteral("GocatorStatusLabel"));
+    _statusLabel->setAlignment(Qt::AlignCenter);
     _statusBar->addWidget(_statusLabel);
+
+    _messageLabel = new QLabel(this);
+    _messageLabel->setObjectName(QStringLiteral("GocatorMessageLabel"));
+    _messageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    _messageLabel->setStyleSheet(QStringLiteral("color: #425467; background: transparent; border: none; padding: 0; margin-left: 10px;"));
+    _statusBar->addWidget(_messageLabel, 1);
+
+    _messageTimer = new QTimer(this);
+    _messageTimer->setSingleShot(true);
+    connect(_messageTimer, &QTimer::timeout, this, [this]() {
+        if (_messageLabel) _messageLabel->clear();
+    });
 
     mainLayout->addWidget(_statusBar);
 
@@ -266,11 +281,7 @@ QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
 
         // Sync initial status
         applyConnectionState(_gocator->isOpened());
-        if (_gocator->isGrabbing())
-        {
-            setStatus(QStringLiteral("Running"));
-            setRunningState(true);
-        }
+        updateGrabState(_gocator->isGrabbing());
     }
 }
 
@@ -368,7 +379,7 @@ void QGocatorWidget::handleStatusChanged(Gocator::Status status, bool on)
 
     if (status == Gocator::GrabbingStatus)
     {
-        setStatus(on ? QStringLiteral("Running") : QStringLiteral("Connected"));
+        updateGrabState(on);
         setRunningState(on);
 
         QSignalBlocker blocker(_toolGrabLive);
@@ -404,12 +415,15 @@ void QGocatorWidget::applyConnectionState(bool opened)
 
     _ipCombo->setEnabled(!opened);
     _toolRefresh->setEnabled(!opened);
+    _toolConnect->setEnabled(true);
     _toolGrabOne->setEnabled(opened);
     _toolGrabLive->setEnabled(opened);
 
+    updateStatusBubble();
+
     if (opened)
     {
-        setStatus(QStringLiteral("Connected"));
+        showStatusMessage(tr("Gocator connected successfully."), false, 3000);
         setRunningState(false);
         populateFeatures();
 
@@ -442,7 +456,7 @@ void QGocatorWidget::applyConnectionState(bool opened)
             QSignalBlocker blocker(_toolGrabLive);
             _toolGrabLive->setChecked(false);
         }
-        setStatus(QStringLiteral("Disconnected"));
+        updateGrabState(false);
         setRunningState(false);
         clearFeatures();
     }
@@ -450,19 +464,77 @@ void QGocatorWidget::applyConnectionState(bool opened)
 
 void QGocatorWidget::setStatus(const QString& status)
 {
-    _statusLabel->setText(status);
-    if (status == QStringLiteral("Running") || status == QStringLiteral("Connected") || status == QStringLiteral("Discovery completed"))
+    int timeout = 0;
+    if (status == QStringLiteral("Discovery completed")
+        || status.startsWith(QStringLiteral("Discovered"))
+        || status == QStringLiteral("Connection Failed")
+        || status == QStringLiteral("No devices found"))
     {
-        _statusLabel->setStyleSheet(QStringLiteral("color: #0a7a2f; font-weight: 600;"));
+        timeout = 3000;
     }
-    else if (status == QStringLiteral("Starting") || status == QStringLiteral("Connecting") || status == QStringLiteral("Discovering"))
-    {
-        _statusLabel->setStyleSheet(QStringLiteral("color: #b8860b; font-weight: 600;"));
+    showStatusMessage(status, false, timeout);
+}
+
+void QGocatorWidget::showStatusMessage(const QString& msg, bool isError, int timeout)
+{
+    if (!_messageLabel || _shuttingDown) return;
+
+    _messageTimer->stop();
+    _messageLabel->setText(msg);
+
+    if (isError) {
+        _messageLabel->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "  color: #c62828;"
+            "  font-weight: bold;"
+            "  background: transparent;"
+            "  border: none;"
+            "  padding: 0;"
+            "  margin-left: 6px;"
+            "}"
+        ));
+    } else {
+        _messageLabel->setStyleSheet(QStringLiteral(
+            "QLabel {"
+            "  color: #354657;"
+            "  font-weight: normal;"
+            "  background: transparent;"
+            "  border: none;"
+            "  padding: 0;"
+            "  margin-left: 6px;"
+            "}"
+        ));
     }
-    else
-    {
-        _statusLabel->setStyleSheet(QStringLiteral("color: #a12622; font-weight: 600;"));
+
+    if (timeout > 0) {
+        _messageTimer->start(timeout);
     }
+}
+
+void QGocatorWidget::updateGrabState(bool grabbing)
+{
+    _grabbing = grabbing;
+    updateStatusBubble();
+}
+
+void QGocatorWidget::updateStatusBubble()
+{
+    if (!_statusLabel || _shuttingDown) return;
+
+    const bool opened = _gocator && _gocator->isOpened();
+
+    if (!opened) {
+        _statusLabel->setText(tr("Disconnected"));
+        _statusLabel->setProperty("status", "disconnected");
+    } else if (_grabbing) {
+        _statusLabel->setText(tr("Live"));
+        _statusLabel->setProperty("status", "grabbing");
+    } else {
+        _statusLabel->setText(tr("Connected"));
+        _statusLabel->setProperty("status", "connected");
+    }
+    _statusLabel->style()->unpolish(_statusLabel);
+    _statusLabel->style()->polish(_statusLabel);
 }
 
 void QGocatorWidget::setRunningState(bool running)

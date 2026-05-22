@@ -16,6 +16,7 @@ class QCheckBox;
 class QToolButton;
 class QTreeWidget;
 class QLabel;
+class QTimer;
 class QStatusBar;
 
 class QGocatorWidget : public QWidget
@@ -78,13 +79,20 @@ private:
     QMap<QWidget*, FeatureMapping> _widgetToFeatureMap;
     QMap<QString, class QJsonValue> _pendingParams;
 
-    QLabel *_statusLabel = nullptr;
     QStatusBar *_statusBar = nullptr;
+    QLabel *_messageLabel = nullptr;
+    QLabel *_statusLabel = nullptr;
+    QTimer *_messageTimer = nullptr;
+
+    void showStatusMessage(const QString& msg, bool isError = false, int timeout = 0);
+    void updateGrabState(bool grabbing);
+    void updateStatusBubble();
 
     QFutureWatcher<bool> _connectWatcher;
     QFutureWatcher<std::vector<Gocator::DeviceInfo>> _discoverWatcher;
     QFutureWatcher<void> _paramWatcher;
     bool _updatingFeatures = false;
+    bool _grabbing = false;
 };
 #endif
 

@@ -8,6 +8,8 @@
 - **Gocator Facade 제어**: 센서 연결 수명주기, 데이터 Grabbing 상태 모니터링, 단일/연속 획득 및 센서 노출 시간 등의 파라미터를 제어하는 API를 제공합니다.
 - **REST 파라미터 제어**: Gocator 내장 REST API 트래버스를 통해 원격으로 장치 속성을 읽거나 설정할 수 있는 클라이언트를 내장하고 있습니다.
 - **Qt6 제어 위젯 지원**: UI 상에서 실시간으로 장치를 모니터링하고 파라미터 트리를 조회할 수 있는 `QGocatorWidget`을 제공합니다.
+- **Runtime logging**: The facade emits lifecycle, discovery, configuration, grab, stop, and warning logs through `Gocator::syslog()` using the `[Gocator]` prefix.
+- **Status UI parity**: `QGocatorWidget` follows the Camera widget statusbar shape: one state bubble (`Disconnected` / `Connected` / `Live`) plus normal transient message text.
 
 ## 🛠️ 요구 사양 및 의존성
 - **OS**: macOS / Windows
@@ -51,3 +53,10 @@ int main()
 1. **List Sources**를 호출하여 센서가 제공하는 지원 출력 소스들을 조회합니다.
 2. **Surface Output** 설정을 켜서 3D 표면 출력을 활성화합니다.
 3. **Set Output**으로 적절한 데이터 소스(예: `topIntensityImage` 또는 `topRangeImage`)가 전달되도록 지정합니다.
+
+## Runtime Logging
+- `Gocator::syslog(message, warning)` mirrors the Camera module's stream-based logging style.
+- Normal logs go to `std::cout`; warnings and failures go to `std::cerr`.
+- Host applications that redirect standard streams, such as Playground's `LogManager`, can collect these messages without linking to Qt-specific logging APIs.
+- Frame-by-frame logging is intentionally avoided to keep live acquisition throughput stable.
+- UI messages such as `Connection Failed` and `No devices found` are treated as normal transient status text, not forced red warning text.

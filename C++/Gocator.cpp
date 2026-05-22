@@ -28,22 +28,54 @@ constexpr const char* INTENSITY_PARAMETER_PATH = "/parameters/scanModeSettings/i
 constexpr const char* UNIFORM_SPACING_PARAMETER_PATH = "/parameters/scanModeSettings/uniformSpacingEnabled";
 constexpr const char* EXPOSURE_PARAMETER_PATH = "/parameters/exposureSettings/singleExposure";
 
+[[nodiscard]] const char* scanModeName(Gocator::ScanMode mode)
+{
+    return mode == Gocator::ScanMode::SurfaceMode ? "Surface" : "Profile";
+}
+
+[[nodiscard]] const char* onOff(bool enabled)
+{
+    return enabled ? "on" : "off";
+}
+
 [[nodiscard]] Gocator::ParameterTarget parameterTargetFromString(const std::string& type)
 {
     return (type == "scanner") ? Gocator::ParameterTarget::Scanner : Gocator::ParameterTarget::Sensor;
+}
+
+[[nodiscard]] const char* parameterTargetName(Gocator::ParameterTarget target)
+{
+    return target == Gocator::ParameterTarget::Scanner ? "scanner" : "sensor";
+}
+
+[[nodiscard]] std::string deviceSummary(const gocator::GocatorDeviceInfo& device)
+{
+    std::string summary = "-- address=" + device.address
+        + " model=" + (device.deviceModel.empty() ? "<unknown>" : device.deviceModel)
+        + " serial=" + std::to_string(device.serialNumber)
+        + " controlPort=" + std::to_string(device.controlPort)
+        + " gdpPort=" + std::to_string(device.gdpPort);
+
+    if (device.remote) summary += " remote=true";
+    if (device.addressConflict) summary += " addressConflict=true";
+    return summary;
 }
 
 [[nodiscard]] gocator::GocatorConnectionConfig resolveTarget(const std::string& ipAddress)
 {
     if (!ipAddress.empty())
     {
+        Gocator::syslog("Using manual Gocator target: " + ipAddress + ".");
         return gocator::GocatorDiscovery::manualTarget(ipAddress);
     }
 
+    Gocator::syslog("Resolving local Gocator target by discovery.");
     const gocator::GocatorDiscovery discovery;
     const std::vector<gocator::GocatorDeviceInfo> devices = discovery.discover({3000, false});
+    Gocator::syslog("Local discovery found " + std::to_string(devices.size()) + " device(s).");
     for (const gocator::GocatorDeviceInfo& device : devices)
     {
+        Gocator::syslog(deviceSummary(device));
         if (device.canConnectLocally())
         {
             return device.connectionConfig();
@@ -155,23 +187,33 @@ struct Gocator::Impl
 
     bool open(const std::string& ip)
     {
-        if (isOpened.load()) return true;
+        if (isOpened.load())
+        {
+            Gocator::syslog("Open skipped: Gocator is already connected to " + ipAddress + ".");
+            return true;
+        }
 
         try
         {
+            Gocator::syslog("Try to open Gocator" + std::string(ip.empty() ? " by discovery." : " at " + ip + "."));
             auto target = resolveTarget(ip);
+            Gocator::syslog("Resolved Gocator target: address=" + target.address
+                + " controlPort=" + std::to_string(target.controlPort)
+                + " timeoutMs=" + std::to_string(target.commandTimeoutMs) + ".");
             connection = std::make_unique<gocator::GocatorConnection>(target);
             resources = std::make_unique<gocator::GocatorResourceClient>(*connection);
             connection->connect();
 
             ipAddress = connection->config().address;
             isOpened.store(true);
+            Gocator::syslog("Gocator connected: address=" + ipAddress
+                + " gdpPort=" + std::to_string(connection->gdpPort()) + ".");
             notifyStatus(ConnectionStatus, true);
             return true;
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Gocator open failed: " << e.what() << std::endl;
+            Gocator::syslog("Gocator open failed: " + std::string(e.what()), true);
             close();
             return false;
         }
@@ -179,6 +221,12 @@ struct Gocator::Impl
 
     void close()
     {
+        const bool wasOpened = isOpened.load();
+        if (wasOpened)
+        {
+            Gocator::syslog("Closing Gocator connection: address=" + ipAddress + ".");
+        }
+
         joinStopWorker();
         stop();
 
@@ -199,15 +247,26 @@ struct Gocator::Impl
         {
             isOpened.store(false);
             notifyStatus(ConnectionStatus, false);
+            Gocator::syslog("Gocator connection closed.");
         }
     }
 
     void configure(double scanLengthMm, ScanMode mode, bool intensityEnabled, bool uniformSpacingEnabled, int exposureUs)
     {
-        if (!isOpened.load()) return;
+        if (!isOpened.load())
+        {
+            Gocator::syslog("Configure skipped: Gocator is not connected.", true);
+            return;
+        }
 
         try
         {
+            Gocator::syslog("Configuring Gocator scan: mode=" + std::string(scanModeName(mode))
+                + " scanLengthMm=" + std::to_string(scanLengthMm)
+                + " intensity=" + onOff(intensityEnabled)
+                + " uniformSpacing=" + onOff(uniformSpacingEnabled)
+                + " exposureUs=" + std::to_string(exposureUs) + ".");
+
             const std::string engineId = detectEngineId(*resources);
             const std::string scannerPath = "/scan/engines/" + engineId + "/scanners/scanner-0";
             const std::string sensorPath = scannerPath + "/sensors/sensor-0";
@@ -245,25 +304,38 @@ struct Gocator::Impl
             const std::string sourceId = profileSourceForEngine(engineId, mode);
             std::string addOutputPayload = R"({"source":")" + sourceId + R"(","outputId":0,"autoShift":true})";
             resources->call(GOCATOR_ADD_OUTPUT_PATH, GoPxLSdk::GoJson(addOutputPayload));
+            Gocator::syslog("Gocator scan configured: engine=" + engineId + " source=" + sourceId + ".");
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Gocator configure failed: " << e.what() << std::endl;
+            Gocator::syslog("Gocator configure failed: " + std::string(e.what()), true);
         }
     }
 
     void setParameterValue(ParameterTarget target, const std::string& path, const std::string& jsonValue)
     {
-        if (!isOpened.load()) return;
+        if (!isOpened.load())
+        {
+            Gocator::syslog("Set parameter skipped: Gocator is not connected. target="
+                + std::string(parameterTargetName(target)) + " path=" + path + ".", true);
+            return;
+        }
         try
         {
+            Gocator::syslog("Setting Gocator parameter: target=" + std::string(parameterTargetName(target))
+                + " path=" + path + " value=" + jsonValue + ".");
             GoPxLSdk::GoJson patch;
             patch.Set(path, GoPxLSdk::GoJson(jsonValue));
             resources->setJson(getParameterTargetPath(target), patch);
+            Gocator::syslog("Gocator parameter applied: target=" + std::string(parameterTargetName(target))
+                + " path=" + path + ".");
         }
         catch (const std::exception& e)
         {
-            std::cerr << "setParameterValue failed: " << e.what() << " (path: " << path << ", val: " << jsonValue << ")" << std::endl;
+            Gocator::syslog("setParameterValue failed: " + std::string(e.what())
+                + " (target: " + parameterTargetName(target)
+                + ", path: " + path
+                + ", val: " + jsonValue + ")", true);
         }
     }
 
@@ -271,12 +343,25 @@ struct Gocator::Impl
     {
         joinStopWorker();
 
-        if (!isOpened.load() || isGrabbing.load()) return;
+        if (!isOpened.load())
+        {
+            Gocator::syslog("Grab skipped: Gocator is not connected.", true);
+            return;
+        }
+
+        if (isGrabbing.load())
+        {
+            Gocator::syslog("Grab skipped: Gocator is already grabbing.");
+            return;
+        }
 
         try
         {
+            Gocator::syslog("Starting Gocator grab: frames="
+                + std::string(frames == 0 ? "continuous" : std::to_string(frames)) + ".");
             gdpClient = std::make_unique<GoPxLSdk::GoGdpClient>();
             gdpClient->Connect(connection->system().Address(), connection->gdpPort());
+            Gocator::syslog("Gocator GDP connected: gdpPort=" + std::to_string(connection->gdpPort()) + ".");
 
             frameSeq = 0;
             frameTarget = frames;
@@ -290,10 +375,11 @@ struct Gocator::Impl
 
             connection->start();
             notifyStatus(GrabbingStatus, true);
+            Gocator::syslog("Gocator grabbing started.");
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Gocator grab failed: " << e.what() << std::endl;
+            Gocator::syslog("Gocator grab failed: " + std::string(e.what()), true);
             stop();
         }
     }
@@ -303,6 +389,7 @@ struct Gocator::Impl
         std::lock_guard<std::mutex> lock(stopMutex);
         if (!isGrabbing.exchange(false)) return;
 
+        Gocator::syslog("Stopping Gocator grab.");
         stopRequested.store(true);
 
         if (connection)
@@ -318,6 +405,7 @@ struct Gocator::Impl
 
         dataCallback = {};
         notifyStatus(GrabbingStatus, false);
+        Gocator::syslog("Gocator grabbing stopped.");
     }
 
     void handleData(const GoPxLSdk::GoDataSet& dataSet)
@@ -347,6 +435,7 @@ struct Gocator::Impl
         frameSeq++;
         if (frameTarget > 0 && frameSeq >= frameTarget)
         {
+            Gocator::syslog("Gocator frame target reached: " + std::to_string(frameSeq) + " frame(s).");
             requestStopFromCallback();
         }
     }
@@ -387,9 +476,18 @@ struct Gocator::Impl
 
 Gocator::Gocator()
     : _impl(std::make_unique<Impl>())
-{}
+{
+    syslog("New Gocator instance created.");
+}
 
-Gocator::~Gocator() = default;
+Gocator::~Gocator()
+{
+    if (_impl)
+    {
+        _impl->close();
+    }
+    syslog("Gocator instance destroyed.");
+}
 
 Gocator::CallbackId Gocator::registerStatusCallback(StatusCallback cb)
 {
@@ -454,28 +552,34 @@ std::vector<Gocator::DeviceInfo> Gocator::discoverDevices()
         gocator::GocatorDiscovery discovery;
         
         // Try standard discovery first
+        syslog("Starting Gocator discovery: mode=standard timeoutMs=3000.");
         std::vector<gocator::GocatorDeviceInfo> devices = discovery.discover({3000, false});
+        syslog("Gocator standard discovery found " + std::to_string(devices.size()) + " device(s).");
         
         // If nothing found, try classic discovery for older G2/G3 sensors
         if (devices.empty())
         {
+            syslog("Starting Gocator discovery: mode=classic timeoutMs=2000.");
             devices = discovery.discover({2000, true});
+            syslog("Gocator classic discovery found " + std::to_string(devices.size()) + " device(s).");
         }
 
         result.reserve(devices.size());
         for (const auto& d : devices)
         {
+            syslog(deviceSummary(d));
             bool isVirt = (d.serialNumber == 0 || d.deviceModel.empty() || d.webPort == 8100);
             result.push_back({d.address, d.deviceModel, std::to_string(d.serialNumber), isVirt});
         }
+        syslog("Gocator discovery completed: " + std::to_string(result.size()) + " device(s) available.");
     }
     catch (const std::exception& e)
     {
-        std::cerr << "Discovery failed: " << e.what() << std::endl;
+        syslog("Discovery failed: " + std::string(e.what()), true);
     }
     catch (...)
     {
-        std::cerr << "Discovery failed with unknown error" << std::endl;
+        syslog("Discovery failed with unknown error", true);
     }
     return result;
 }
@@ -582,7 +686,7 @@ std::string Gocator::getParametersSchema(ParameterTarget target) const
     }
     catch (const std::exception& e)
     {
-        std::cerr << "getParametersSchema failed: " << e.what() << std::endl;
+        syslog("getParametersSchema failed: " + std::string(e.what()), true);
     }
     return "{}";
 }
@@ -597,7 +701,7 @@ std::string Gocator::getParametersData(ParameterTarget target) const
     }
     catch (const std::exception& e)
     {
-        std::cerr << "getParametersData failed: " << e.what() << std::endl;
+        syslog("getParametersData failed: " + std::string(e.what()), true);
     }
     return "{}";
 }
@@ -620,4 +724,16 @@ std::string Gocator::getParametersData(const std::string& type) const
 void Gocator::setParameterValue(const std::string& type, const std::string& path, const std::string& jsonValue)
 {
     setParameterValue(parameterTargetFromString(type), path, jsonValue);
+}
+
+void Gocator::syslog(const std::string& message, bool warning)
+{
+    if (!warning)
+    {
+        std::cout << "[Gocator] " << message << std::endl;
+    }
+    else
+    {
+        std::cerr << "[Gocator] " << message << std::endl;
+    }
 }
