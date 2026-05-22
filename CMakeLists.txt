@@ -29,6 +29,10 @@ add_library(gocator_core
 target_include_directories(gocator_core
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/C++"
+)
+
+target_include_directories(gocator_core
+    SYSTEM PUBLIC
         "${GOPXL_SDK_DIR}/include/kApi"
         "${GOPXL_SDK_DIR}/include/GoApi"
         "${GOPXL_SDK_DIR}/include/GoPxLSdk"
@@ -46,11 +50,6 @@ target_link_libraries(gocator_core
         GoPxLSdk
 )
 
-add_executable(gocator
-    src/main.cpp
-    src/cli_main.cpp
-)
-
 if(GOCATOR_BUILD_QT_UI)
     find_package(Qt6 QUIET COMPONENTS Widgets Concurrent)
     if(Qt6_FOUND)
@@ -61,21 +60,11 @@ if(GOCATOR_BUILD_QT_UI)
         )
         target_link_libraries(gocator_core PUBLIC Qt6::Widgets Qt6::Concurrent)
         target_compile_definitions(gocator_core PUBLIC GOCATOR_HAS_UI)
-
-        target_sources(gocator PRIVATE src/ui_main.cpp)
-        target_link_libraries(gocator PRIVATE Qt6::Widgets)
-        target_compile_definitions(gocator PRIVATE GOCATOR_HAS_UI)
     endif()
 endif()
 
-target_link_libraries(gocator
-    PRIVATE
-        gocator_core
-)
-
 set(gocator_runtime_targets
     gocator_core
-    gocator
 )
 
 foreach(target ${gocator_runtime_targets})
@@ -84,3 +73,13 @@ foreach(target ${gocator_runtime_targets})
         INSTALL_RPATH "@executable_path/../GoPxL-SDK/lib"
     )
 endforeach()
+
+if(TARGET GraphicsEngine)
+    message(STATUS "[Gocator] GraphicsEngine target detected. Enabling GocatorDataSetScene3DAdapter.")
+    target_sources(gocator_core PRIVATE
+        C++/Utility/GraphicsEngine/GocatorDataSetScene3DAdapter.h
+        C++/Utility/GraphicsEngine/GocatorDataSetScene3DAdapter.cpp
+    )
+    target_link_libraries(gocator_core PUBLIC GraphicsEngine::GraphicsEngine)
+    target_include_directories(gocator_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/C++/Utility/GraphicsEngine)
+endif()

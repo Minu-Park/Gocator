@@ -17,34 +17,18 @@ Keep the public Gocator facade, low-level SDK helpers, and Qt widgets separated 
 - `C++/Internal/GocatorSettingsManager.*`: REST read/update/call and scan output setup.
 - `C++/Internal/GocatorResourceClient.*`: REST resource access wrapper.
 - `C++/Utility/Qt/QGocatorWidget.*`: Qt control widget aligned with Camera widget metrics. Owns UI state and dynamic parameter tree rendering; delegates device writes through `Gocator`.
-- `src/main.cpp`: combined CLI/UI entry point.
-- `src/cli_main.cpp`: CLI logic.
-- `src/ui_main.cpp`: Qt Widgets debug UI logic.
 
 ## Build
 
+As part of the Playground workspace, this module is built as the `gocator_core` library target.
+
+To build manually from this directory:
 ```bash
 mkdir build && cd build
 cmake ..
 make -j4
 ```
 
-The Qt debug UI is built when Qt6 Widgets is available.
-
-## Run
-
-```bash
-# GUI, no arguments
-./build/gocator
-
-# force GUI
-./build/gocator --ui
-
-# CLI
-./build/gocator discover
-./build/gocator <sensor-ip> info
-./build/gocator <sensor-ip> read /scan/visibleSensors/
-```
 
 ## Image Debugging
 

@@ -766,7 +766,7 @@ void QGocatorWidget::addFeatureNode(QTreeWidgetItem* parentItem, Gocator::Parame
         {
             QCheckBox* check = new QCheckBox(_featuresWidget);
             check->setChecked(curVal.toBool());
-            connect(check, &QCheckBox::stateChanged, this, &QGocatorWidget::onParameterChanged);
+            connect(check, &QCheckBox::checkStateChanged, this, &QGocatorWidget::onParameterChanged);
             editorWidget = check;
         }
         else if (propType == QStringLiteral("integer") || propType == QStringLiteral("number"))
