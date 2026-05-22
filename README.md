@@ -24,7 +24,7 @@
 단독 빌드 시 아래 명령을 사용합니다.
 ```bash
 mkdir build && cd build
-cmake ..
+cmake ../C++
 make -j4
 ```
 
