@@ -59,12 +59,18 @@ private:
         QString label;
     };
 
+    struct FeatureDataResult {
+        QString scannerData;
+        QString sensorData;
+    };
+
     void setConnectionOperationActive(bool active);
     void applyConnectionState(bool opened);
     void populateFeatures();
     void clearFeatures();
     void addFeatureNode(class QTreeWidgetItem* parentItem, Gocator::ParameterTarget target, const QString& basePath, const QString& name, const class QJsonObject& propSchema, const class QJsonObject& valuesObj);
     void updateFeatureValues();
+    void applyFeatureValues(const FeatureDataResult& result);
 
     Gocator *_gocator = nullptr;
     Gocator::CallbackId _statusCallbackId = 0;
@@ -93,6 +99,7 @@ private:
     QFutureWatcher<bool> _connectWatcher;
     QFutureWatcher<std::vector<Gocator::DeviceInfo>> _discoverWatcher;
     QFutureWatcher<void> _paramWatcher;
+    QFutureWatcher<FeatureDataResult> _featureDataWatcher;
     bool _updatingFeatures = false;
     bool _grabbing = false;
 };

@@ -71,6 +71,14 @@ std::string formatDeviceName(const std::string& model, const std::string& serial
     
     return displayName + " (" + serialStr + ") - " + address;
 }
+
+void repolish(QWidget* widget)
+{
+    if(!widget) return;
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
+}
 }
 
 QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
@@ -184,7 +192,7 @@ QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
     _messageLabel = new QLabel(this);
     _messageLabel->setObjectName(QStringLiteral("GocatorMessageLabel"));
     _messageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    _messageLabel->setStyleSheet(QStringLiteral("color: #425467; background: transparent; border: none; padding: 0; margin-left: 10px;"));
+    _messageLabel->setProperty("messageState", "normal");
     _statusBar->addWidget(_messageLabel, 1);
 
     _messageTimer = new QTimer(this);
@@ -265,6 +273,11 @@ QGocatorWidget::QGocatorWidget(QWidget *parent, Gocator *gocator)
         updateFeatureValues();
     });
 
+    connect(&_featureDataWatcher, &QFutureWatcher<FeatureDataResult>::finished, this, [this]() {
+        if (_shuttingDown || !_gocator) return;
+        applyFeatureValues(_featureDataWatcher.result());
+    });
+
     if (_gocator)
     {
         _statusCallbackId = _gocator->registerStatusCallback([guard = QPointer<QGocatorWidget>(this)](Gocator::Status status, bool on) {
@@ -300,6 +313,8 @@ void QGocatorWidget::prepareForShutdown()
     _discoverWatcher.waitForFinished();
     _paramWatcher.cancel();
     _paramWatcher.waitForFinished();
+    _featureDataWatcher.cancel();
+    _featureDataWatcher.waitForFinished();
 
     if (_gocator && _statusCallbackId != 0)
     {
@@ -491,30 +506,8 @@ void QGocatorWidget::showStatusMessage(const QString& msg, bool isError, int tim
 
     _messageTimer->stop();
     _messageLabel->setText(msg);
-
-    if (isError) {
-        _messageLabel->setStyleSheet(QStringLiteral(
-            "QLabel {"
-            "  color: #c62828;"
-            "  font-weight: bold;"
-            "  background: transparent;"
-            "  border: none;"
-            "  padding: 0;"
-            "  margin-left: 6px;"
-            "}"
-        ));
-    } else {
-        _messageLabel->setStyleSheet(QStringLiteral(
-            "QLabel {"
-            "  color: #354657;"
-            "  font-weight: normal;"
-            "  background: transparent;"
-            "  border: none;"
-            "  padding: 0;"
-            "  margin-left: 6px;"
-            "}"
-        ));
-    }
+    _messageLabel->setProperty("messageState", isError ? "error" : "normal");
+    repolish(_messageLabel);
 
     if (timeout > 0) {
         _messageTimer->start(timeout);
@@ -972,6 +965,12 @@ void QGocatorWidget::onParameterChanged()
 
     if (!jsonVal.isNull())
     {
+        if (_paramWatcher.isRunning())
+        {
+            showStatusMessage(tr("Parameter update already in progress."), false, 3000);
+            return;
+        }
+
         QString jsonValueStr;
         if (jsonVal.isBool())
         {
@@ -994,10 +993,11 @@ void QGocatorWidget::onParameterChanged()
                           false,
                           3000);
 
-        auto future = QtConcurrent::run([this, target, path, valStr]() {
-            if (_gocator)
+        Gocator* gocator = _gocator;
+        auto future = QtConcurrent::run([gocator, target, path, valStr]() {
+            if (gocator)
             {
-                _gocator->setParameterValue(target, path, valStr);
+                gocator->setParameterValue(target, path, valStr);
             }
         });
         _paramWatcher.setFuture(future);
@@ -1007,107 +1007,100 @@ void QGocatorWidget::onParameterChanged()
 void QGocatorWidget::updateFeatureValues()
 {
     if (!_gocator || _shuttingDown || !_gocator->isOpened()) return;
+    if (_featureDataWatcher.isRunning()) return;
 
-    struct DataResult {
-        QString scannerData;
-        QString sensorData;
-    };
-
-    auto future = QtConcurrent::run([this]() -> DataResult {
-        if (!_gocator) return {};
+    Gocator* gocator = _gocator;
+    auto future = QtConcurrent::run([gocator]() -> FeatureDataResult {
+        if (!gocator) return {};
         return {
-            QString::fromStdString(_gocator->getParametersData(Gocator::ParameterTarget::Scanner)),
-            QString::fromStdString(_gocator->getParametersData(Gocator::ParameterTarget::Sensor))
+            QString::fromStdString(gocator->getParametersData(Gocator::ParameterTarget::Scanner)),
+            QString::fromStdString(gocator->getParametersData(Gocator::ParameterTarget::Sensor))
         };
     });
 
-    auto* watcher = new QFutureWatcher<DataResult>(this);
-    connect(watcher, &QFutureWatcher<DataResult>::finished, this, [this, watcher]() {
-        watcher->deleteLater();
-        if (_shuttingDown || !_gocator) return;
-        
-        DataResult res = watcher->result();
-        
-        QJsonObject scannerData = QJsonDocument::fromJson(res.scannerData.toUtf8()).object();
-        QJsonObject sensorData = QJsonDocument::fromJson(res.sensorData.toUtf8()).object();
+    _featureDataWatcher.setFuture(future);
+}
 
-        QJsonObject scannerParams = scannerData.value(QStringLiteral("parameters")).toObject();
-        QJsonObject sensorParams = sensorData.value(QStringLiteral("parameters")).toObject();
+void QGocatorWidget::applyFeatureValues(const FeatureDataResult& result)
+{
+    QJsonObject scannerData = QJsonDocument::fromJson(result.scannerData.toUtf8()).object();
+    QJsonObject sensorData = QJsonDocument::fromJson(result.sensorData.toUtf8()).object();
 
-        _updatingFeatures = true;
+    QJsonObject scannerParams = scannerData.value(QStringLiteral("parameters")).toObject();
+    QJsonObject sensorParams = sensorData.value(QStringLiteral("parameters")).toObject();
 
-        for (auto it = _widgetToFeatureMap.begin(); it != _widgetToFeatureMap.end(); ++it)
+    _updatingFeatures = true;
+
+    for (auto it = _widgetToFeatureMap.begin(); it != _widgetToFeatureMap.end(); ++it)
+    {
+        QWidget* widget = it.key();
+        const FeatureMapping& mapping = it.value();
+
+        if (!widget) continue;
+
+        QString relativePath = mapping.path;
+        if (relativePath.startsWith(QStringLiteral("/parameters")))
         {
-            QWidget* widget = it.key();
-            const FeatureMapping& mapping = it.value();
+            relativePath = relativePath.mid(11);
+        }
+        if (relativePath.startsWith(QStringLiteral("/")))
+        {
+            relativePath = relativePath.mid(1);
+        }
 
-            if (!widget) continue;
+        QStringList segments = relativePath.split(QStringLiteral("/"));
+        QJsonObject currentObj = (mapping.target == Gocator::ParameterTarget::Scanner) ? scannerParams : sensorParams;
+        QJsonValue targetVal;
 
-            QString relativePath = mapping.path;
-            if (relativePath.startsWith(QStringLiteral("/parameters")))
+        for (int i = 0; i < segments.size(); ++i)
+        {
+            if (i == segments.size() - 1)
             {
-                relativePath = relativePath.mid(11);
+                targetVal = currentObj.value(segments[i]);
             }
-            if (relativePath.startsWith(QStringLiteral("/")))
+            else
             {
-                relativePath = relativePath.mid(1);
-            }
-
-            QStringList segments = relativePath.split(QStringLiteral("/"));
-            QJsonObject currentObj = (mapping.target == Gocator::ParameterTarget::Scanner) ? scannerParams : sensorParams;
-            QJsonValue targetVal;
-
-            for (int i = 0; i < segments.size(); ++i)
-            {
-                if (i == segments.size() - 1)
-                {
-                    targetVal = currentObj.value(segments[i]);
-                }
-                else
-                {
-                    currentObj = currentObj.value(segments[i]).toObject();
-                }
-            }
-
-            if (targetVal.isUndefined() || targetVal.isNull())
-            {
-                continue;
-            }
-
-            QSignalBlocker blocker(widget);
-
-            if (auto* check = qobject_cast<QCheckBox*>(widget))
-            {
-                check->setChecked(targetVal.toBool());
-            }
-            else if (auto* spin = qobject_cast<QSpinBox*>(widget))
-            {
-                spin->setValue(targetVal.toInt());
-            }
-            else if (auto* dspin = qobject_cast<QDoubleSpinBox*>(widget))
-            {
-                dspin->setValue(targetVal.toDouble());
-            }
-            else if (auto* combo = qobject_cast<QComboBox*>(widget))
-            {
-                int index = -1;
-                if (targetVal.isDouble())
-                {
-                    index = combo->findData(targetVal.toDouble());
-                }
-                else
-                {
-                    index = combo->findData(targetVal.toString());
-                }
-                if (index >= 0)
-                {
-                    combo->setCurrentIndex(index);
-                }
+                currentObj = currentObj.value(segments[i]).toObject();
             }
         }
 
-        _updatingFeatures = false;
-    });
-    watcher->setFuture(future);
+        if (targetVal.isUndefined() || targetVal.isNull())
+        {
+            continue;
+        }
+
+        QSignalBlocker blocker(widget);
+
+        if (auto* check = qobject_cast<QCheckBox*>(widget))
+        {
+            check->setChecked(targetVal.toBool());
+        }
+        else if (auto* spin = qobject_cast<QSpinBox*>(widget))
+        {
+            spin->setValue(targetVal.toInt());
+        }
+        else if (auto* dspin = qobject_cast<QDoubleSpinBox*>(widget))
+        {
+            dspin->setValue(targetVal.toDouble());
+        }
+        else if (auto* combo = qobject_cast<QComboBox*>(widget))
+        {
+            int index = -1;
+            if (targetVal.isDouble())
+            {
+                index = combo->findData(targetVal.toDouble());
+            }
+            else
+            {
+                index = combo->findData(targetVal.toString());
+            }
+            if (index >= 0)
+            {
+                combo->setCurrentIndex(index);
+            }
+        }
+    }
+
+    _updatingFeatures = false;
 }
 #endif
